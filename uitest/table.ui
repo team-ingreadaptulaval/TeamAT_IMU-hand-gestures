@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Dialog</class>
+ <widget class="QDialog" name="Dialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>684</width>
+    <height>449</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Manage sequences</string>
+  </property>
+  <property name="layoutDirection">
+   <enum>Qt::LeftToRight</enum>
+  </property>
+  <property name="autoFillBackground">
+   <bool>false</bool>
+  </property>
+  <widget class="QTableWidget" name="tableWidget">
+   <property name="geometry">
+    <rect>
+     <x>80</x>
+     <y>60</y>
+     <width>451</width>
+     <height>291</height>
+    </rect>
+   </property>
+   <row>
+    <property name="text">
+     <string>Nouvelle ligne</string>
+    </property>
+   </row>
+   <row>
+    <property name="text">
+     <string>Nouvelle ligne</string>
+    </property>
+   </row>
+   <column>
+    <property name="text">
+     <string>Nouvelle colonne</string>
+    </property>
+   </column>
+   <column>
+    <property name="text">
+     <string>Nouvelle colonne</string>
+    </property>
+   </column>
+   <column>
+    <property name="text">
+     <string>Nouvelle colonne</string>
+    </property>
+   </column>
+   <column>
+    <property name="text">
+     <string>Nouvelle colonne</string>
+    </property>
+   </column>
+   <column>
+    <property name="text">
+     <string>Nouvelle colonne</string>
+    </property>
+   </column>
+   <item row="0" column="1">
+    <property name="text">
+     <string/>
+    </property>
+    <property name="checkState">
+     <enum>Unchecked</enum>
+    </property>
+    <property name="flags">
+     <set>ItemIsSelectable|ItemIsDragEnabled|ItemIsDropEnabled|ItemIsUserCheckable|ItemIsEnabled</set>
+    </property>
+   </item>
+   <item row="0" column="2">
+    <property name="flags">
+     <set>ItemIsSelectable|ItemIsDragEnabled|ItemIsDropEnabled|ItemIsUserCheckable|ItemIsEnabled</set>
+    </property>
+   </item>
+   <item row="1" column="1">
+    <property name="text">
+     <string/>
+    </property>
+   </item>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
