@@ -202,7 +202,7 @@ class Window(QMainWindow):
         self.handle_cs_indications()
         self.handle_check_table()
         # print(self.sd.current_window.shape)
-        self.canvas.plot(self.sd.current_window)
+        # self.canvas.plot(self.sd.current_window)
 
     def handle_check_table(self):
         root = self.seq_list.invisibleRootItem()
@@ -385,7 +385,9 @@ class Window(QMainWindow):
                 ls.append(root.child(i).text(0))
         print(ls)
         confusion = self.sd.known_seq.set_sequence(ls)
-        if self.sd.known_seq.enabeled_sign != self.sd.known_seq.available_sign:
+        print('sign comp', self.sd.known_seq.enabeled_sign, self.sd.known_seq.available_sign)
+        # if self.sd.known_seq.enabeled_sign != self.sd.known_seq.available_sign:
+        if self.sd.known_seq.sign_is_changed():
             self.sd.refit()
         self.shade_confusion(confusion)
         self.seq_list.itemChanged.connect(self.checked_sequences)

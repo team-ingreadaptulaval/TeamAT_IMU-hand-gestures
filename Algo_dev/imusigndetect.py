@@ -36,6 +36,7 @@ class ImuSignDetectClassifier:
         # self.clf = SVC(kernel='linear', C=0.1)
         self.clf = SVCWithReject(_lambda=0.50, kernel='linear', C=0.1)
         self.train_features = np.array([], dtype='float64')
+        self.has_no_class = True
         # self.reducer = NoReductor()
         # self.reducer = SelectorReducer(components=[6, 47, 50, 34, 54, 52, 49, 9, 37, 18, 28, 42]) #, 0, 23, 5, 55, 45, 39, 46, 16])
         # self.reducer = PCAReducer(n_components=20)
@@ -47,28 +48,43 @@ class ImuSignDetectClassifier:
 
         :type targets: np.array
         """
-        self.train_signals = signals
-        self.__process_signals(self.train_signals)
-        self.train_features = self.__compute_features(self.train_signals, info=targets)
-        self.scaler = MinMaxScaler(feature_range=(-1, 1))
-        self.scaler.fit(self.train_features)
-        self.train_features = self.scaler.transform(self.train_features)
-        self.reducer = PCAReducer(n_components=int(len(targets)))
-        self.reducer.fit(self.train_features, targets)
-        print('PCA comp out: ', self.reducer.reducer.n_components_)
-        reduced_train_feats = self.reducer.transform(self.train_features)
-        # clf = SVC(gamma='scale')
-        # distribution = {'kernel': ['rbf', 'poly', 'sigmoid'], 'C': np.logspace(-10, 10, 11)}
-        # rds = RandomizedSearchCV(clf, distribution, random_state=0, cv=3, n_jobs=-1)
-        # search = rds.fit(self.train_features, targets)
-        # self.best_params = search.best_params_
-        # print(self.best_params)
-        # cv_results = search.cv_results_
-        # self.clf = SVC(kernel=self.best_params['kernel'], gamma='scale', C=self.best_params['C'])
-        if len(np.unique(targets)) != 1:
-            self.clf.fit(reduced_train_feats, targets)
+        print(f'targets: {targets}, len: {len(np.unique(targets))}')
+        if len(np.unique(targets)) == 0:
+            print('NO CLASSES')
+            self.clf = ZeroClassClassifier()
+            self.clf.fit(None, None)
+            print('fit done')
+            self.has_no_class = True
         else:
-            raise AssertionError('Only one class for svc fit')
+            self.has_no_class = False
+            if len(np.unique(targets)) == 1:
+                print('ONE CLASS SVM')
+                self.clf = OneClassClassifier()
+                # raise AssertionError('Only one class for svc fit')
+            else:
+                print('SVM')
+                self.clf = SVCWithReject(_lambda=0.50, kernel='linear', C=0.1)
+            self.train_signals = signals
+            self.__process_signals(self.train_signals)
+            self.train_features = self.__compute_features(self.train_signals, info=targets)
+            self.scaler = MinMaxScaler(feature_range=(-1, 1))
+            self.scaler.fit(self.train_features)
+            self.train_features = self.scaler.transform(self.train_features)
+            self.reducer = PCAReducer(n_components=int(len(targets)))
+            self.reducer.fit(self.train_features, targets)
+            print('PCA comp out: ', self.reducer.reducer.n_components_)
+            reduced_train_feats = self.reducer.transform(self.train_features)
+            # clf = SVC(gamma='scale')
+            # distribution = {'kernel': ['rbf', 'poly', 'sigmoid'], 'C': np.logspace(-10, 10, 11)}
+            # rds = RandomizedSearchCV(clf, distribution, random_state=0, cv=3, n_jobs=-1)
+            # search = rds.fit(self.train_features, targets)
+            # self.best_params = search.best_params_
+            # print(self.best_params)
+            # cv_results = search.cv_results_
+            # self.clf = SVC(kernel=self.best_params['kernel'], gamma='scale', C=self.best_params['C'])
+
+            self.clf.fit(reduced_train_feats, targets)
+
 
     def __process_signals(self, signals):
         # if len(signals[0].shape) == 1:
@@ -189,14 +205,18 @@ class ImuSignDetectClassifier:
         return h/np.linalg.norm(h, axis=1).reshape(h.shape[0], 1)
 
     def predict(self, signals, with_second_choice=False):
+        if self.has_no_class:
+            return [-1]
         self.test_signals = signals
         self.__process_signals(self.test_signals)
         X = self.__compute_features(self.test_signals)
         X = self.scaler.transform(X)
         X = self.reducer.transform(X)
-        return self.clf.predict(X, tol_rel=0, tol_abs=0, with_second_choice=with_second_choice)
+        return self.clf.predict(X)
 
     def score(self, signals, targets):
+        if self.has_no_class:
+            return 0
         self.test_signals = signals
         self.__process_signals(self.test_signals)
         X = self.__compute_features(self.test_signals)
@@ -227,7 +247,7 @@ class SVCWithReject:
         h = self.clf.decision_function(X)
         return h/np.linalg.norm(h, axis=1).reshape(h.shape[0], 1)
 
-    def predict(self, X, tol_rel=0, tol_abs=0, with_second_choice=False):  #0.05, 0.4 /// 0 0.5
+    def predict(self, X, tol_rel=0, tol_abs=0, with_second_choice=False):  #0.05, 0.4 /// 0 0.5  // , tol_rel=0, tol_abs=0, with_second_choice=with_second_choice
         # h = self.decision_function(X)
         # alphas_j = np.argmax(h, axis=1)
         # alphas_j[alphas_j < (1 - self._lambda)] = self.K
@@ -240,6 +260,8 @@ class SVCWithReject:
             print(preds, maxs[0], confidence, posteriors)
             preds[confidence <= tol_rel] = self.K
             preds[np.max(posteriors, axis=1) <= tol_abs] = self.K
+            # return_list = [(p, None, None, None) for p in self.clf.classes_[preds]]
+            # print('returnlist: ', return_list)
             return self.clf.classes_[preds]
         else:
             posteriors = self.predict_proba(X)
@@ -258,6 +280,49 @@ class SVCWithReject:
         miss_w_rej = len(diff[diff != 0])  # ratés incluant rejet
         rej = len(preds[preds == self.K])  # rejet
         return 1 - (((miss_w_rej - rej) * 1 + rej * self._lambda) / len(y))
+
+
+class ZeroClassClassifier:
+
+    def __init__(self):
+        pass
+
+    def fit(self, X, y):
+        pass
+
+    def predict(self, X):
+        return [-1]
+
+    def score(self, X, y):
+        return 1
+
+class OneClassClassifier(OneClassSVM):
+
+    def __init__(self):
+        super().__init__(kernel='linear')
+        self.target = None
+
+    def fit(self, X, y=None, sample_weight=None, **params):
+        super().fit(X)
+        targets = set(y)
+        self.target = targets.pop()
+
+    def predict(self, X):
+        preds = super().predict(X)
+        preds = [self.target if p == 1 else -1 for p in preds]
+        return preds
+
+    def score(self, X, y):
+        return 1
+
+
+
+
+
+
+
+
+
 
 
 

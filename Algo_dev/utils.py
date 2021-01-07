@@ -290,6 +290,8 @@ def load_FS_IMU_data(file='../my_data/IMU_data.pkl'):
     signals = [[], [], [], [], [], []]
     targets = []
     target_names = []
+    if not data:
+        return signals, targets, target_names
     for key, value in data.items():
         target_names.append(key)
         for i in range(6):
@@ -343,12 +345,16 @@ def append_train_file(current_file_name, new_examples, new_target_name):
     if current_data.get(new_target_name) is not None:
         print('overwriting sing ' + new_target_name)
         # raise ValueError
-    existing_targets = [val[0] for val in current_data.values()]
-    new_target = 0
-    for i in range(max(existing_targets) + 2):
-        if i not in existing_targets:
-            new_target = i
-            break
+    print(current_data, type(current_data))
+    if current_data:
+        existing_targets = [val[0] for val in current_data.values()]
+        new_target = 0
+        for i in range(max(existing_targets) + 2):
+            if i not in existing_targets:
+                new_target = i
+                break
+    else:
+        new_target = 0
     new_signals = [[], [], [], [], [], []]
     for ex in new_examples:
         for i in range(6):

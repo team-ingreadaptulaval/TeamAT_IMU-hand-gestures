@@ -110,16 +110,21 @@ class LiveSignatureDetection:
         """
         # signature: prediction
         signature = pred_info[0]
+        # print('sequence_detection: signature ', signature)
+        # print('sequence_detection: pred_info ', pred_info)
         k = len(self.targets_names)
+        # print('sequence_detection: k ', k)
         command = self.last_command
         if signature == -1:
             self.idle_timer = time() + self.switch_released_time_offset
             self.last_command = self.last_real_command
             return self.last_real_command
         if signature < k:
+            # print('signature', signature)
             self.curr_seq.append(signature)
             self.idle_timer = time()
-            self.alternative_info = (pred_info[2], pred_info[3], pred_info[1] - pred_info[3])
+            # print('sequence_detection: signature < k pred_info ', pred_info)
+            # self.alternative_info = (pred_info[2], pred_info[3], pred_info[1] - pred_info[3])
         elif signature == k and (self.n_missed < self.missed_max):
             self.idle_timer = time()
             self.n_missed += 1
@@ -137,7 +142,8 @@ class LiveSignatureDetection:
                     self.last_real_command = self.last_command if self.last_command != 0 else self.last_real_command
                     command = 0
             else:
-                action = self.forcheck_sequence(alternative=self.alternative_info)
+                # action = self.forcheck_sequence(alternative=self.alternative_info) # uncoment to use with second choice and reject
+                action = self.forcheck_sequence()
                 if action is not None:  # Action detected
                     self.curr_seq = []
                     self.known_seq.possible_sequences = self.known_seq.enabled_sequences.copy()
@@ -258,12 +264,14 @@ class LiveSignatureDetection:
                             if self.example_count >= self.required_examples:
                                 print('compiling new data + train')
                                 utils.append_train_file(self.train_file, self.fit_examples, self.new_target_name)
+                                print('file appended')
                                 self.fit_from_trainfile(self.train_file)
                                 self.example_count = 0
                                 # self.__mode = 0
                                 self.known_seq.target_id = self.target_id
                                 self.new_fit_done = True
                                 self.unavailable_flag = False
+                                print('teching done')
                             # np.savetxt(fname=f'train_{self.save_count}.csv',
                             #            X=self.current_window[:, -self.inmotion_count - self.idle_pts_before::],
                             #            delimiter=',')
@@ -388,8 +396,11 @@ class LiveSignatureDetection:
         self.unavailable_flag = True
         signals, targets, self.targets_names = utils.load_FS_IMU_data(
             file=filename)
-        print(self.targets_names)
-        file_targets = targets[np.sort(np.unique(targets, return_index=True)[1])]
+        print(targets, signals)
+        if not self.targets_names:
+            file_targets = np.array([])
+        else:
+            file_targets = targets[np.sort(np.unique(targets, return_index=True)[1])]
         tfile_target2name = {ft: name for name, ft in zip(self.targets_names, file_targets)}
         self.target_id = {name: i for i, name in enumerate(self.targets_names)}  #  sign2#
         targets = np.array([self.target_id[tfile_target2name[t]] for t in targets])
@@ -480,6 +491,7 @@ class IMUSequences:
         self.possible_sequences = self.enabled_sequences.copy() # {'sign_name1-sign_name2': [#1,#2]}
         self.enabeled_sign = set([subelement for element in [sign.split('-') for sign in self.enabled_sequences.keys()] for subelement in element])
         self.available_sign = set(self.target_id.keys())
+        self.enabeled_sign_m1 = self.enabeled_sign.copy()
         self.used_signals = parent.train_signals.copy()
         self.used_targets = parent.train_targets.copy()
 
@@ -563,6 +575,8 @@ class IMUSequences:
         #         self.possible_sequences.pop(seq)
 
     def transform(self, signals, targets):
+        if not self.enabeled_sign:
+            return [], []
         old_signals = self.used_signals.copy()
         old_targets = self.used_targets.copy()
         if self.enabeled_sign != self.available_sign:  # cut sign
@@ -581,3 +595,9 @@ class IMUSequences:
         self.used_targets = old_targets
         return self.used_signals , self.used_targets
 
+    def sign_is_changed(self):
+        changed = False
+        if self.enabeled_sign != self.enabeled_sign_m1:
+            changed = True
+            self.enabeled_sign_m1 = self.enabeled_sign
+        return changed
