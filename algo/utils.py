@@ -283,7 +283,7 @@ def load_IMU_data(file):
     targets = np.vstack(targets).reshape(-1)
     return signals, targets, target_names
 
-def load_FS_IMU_data(file='../my_data/IMU_data.pkl'):
+def load_imu_data(file='../my_data/IMU_data.pkl'):
     with open(file, 'rb') as f:
         seq_bin = f.read()
         data = pkl.loads(seq_bin)

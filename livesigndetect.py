@@ -1,5 +1,5 @@
-from Algo_dev.imusigndetect import *
-from Algo_dev import utils
+from algo.imusigndetect import *
+from algo import utils
 import numpy as np
 from numpy import linalg
 import matplotlib.pyplot as plt
@@ -9,35 +9,47 @@ import json
 
 class LiveSignatureDetection:
 
-    def __init__(self, at, sequence_file, command_mapping_file, window_len, freq):
+    def __init__(self, at_file, sequence_file, command_mapping_file, trainset_file, window_len, freq):
         """
         :type at: str
         :type sequence_file: str
         :type command_mapping_file: str
         :type freq: int, float
         """
+
+        self.at_file = at_file
+        self.at = at_file.split('.')[0]
+
+        # Mappings
+        # self.known_seq = IMUSequences(self, self.target_id, seq_filename=sequence_file)
+        self.command_map_file = command_mapping_file
+        self.__at_map = self.load_at_file()
+        self.command_map = self.load_mapping(self.command_map_file)
+        print(self.__at_map)
+        print('self.command_map: ', self.command_map)
+
         # Init classifier
         self.clf = ImuSignDetectClassifier()
-        # self.default_fit()
-        self.train_file = 'variable_len_plus.sd'
+        self.train_file = trainset_file
         self.sequence_file = sequence_file
         self.fit_from_trainfile(self.train_file)
 
         # Constants
-        self.freq = freq
-        self.idle_tol_accel = 20 / self.freq
-        self.idle_tol_gyro = 1 / self.freq
-        self.window_buff_len = self.freq
-        self.window_len = window_len
-        self.trigger_tresh = [15, 3]
-        self.min_after_count = 5
-        self.acccel_var_tresh = 2
-        self.idle_pts_before = 5
-        self.idle_time_max = 1.5
-        self.missed_max = 1
-        self.switch_released_time_offset = 2
-        self.required_examples = 10
-        self.hold_down_tresh = 2
+        self.FREQ = freq
+        self.IDLE_TOL_ACCEL = 20 / self.FREQ
+        self.IDLE_TOL_GYRO = 1 / self.FREQ
+        self.WINDOW_BUF_LEN = self.FREQ
+        self.WINDOW_LEN = window_len
+        self.TRIGGER_TRESH = [15, 3]
+        self.MIN_AFTER_COUNT = 5
+        self.ACCEL_VARIANCE_TRESH = 2
+        self.IDLE_PTS_BEFORE_WINDOW = 5
+        self.IDLE_TIME_MAX = 1.5
+        self.MISSED_MAX = 1
+        self.SWITCH_RELEASE_TIME_OFFSET = 2
+        self.REQUIRED_EXAMPLES = 10
+        self.HOLD_DOWN_TRESH = 2
+        self.N_SENSORS = 6
 
         # Init counters
         self.inmotion_count = 0
@@ -45,15 +57,15 @@ class LiveSignatureDetection:
         self.window_wait = 0
         self.save_count = 0
         self.after_count = 0
-        self.i_buff = 0
+        self.i_window_buff = 0
         self.i_rec = 0
         self.n_missed = 0
         self.example_count = 0
 
         # Init variables
         self.__mode = 0
-        self.window_buff = np.zeros((6, window_len, self.window_buff_len))
-        self.current_window = np.zeros((6, window_len))
+        self.window_buff = np.zeros((self.N_SENSORS, window_len, self.WINDOW_BUF_LEN))
+        self.current_window = np.zeros((self.N_SENSORS, window_len))
         self.command_string = 'signdetect,0,0'
         self.new_target_name = ''
         self.signal_state = 0  # 0: waiting for motion, 1: waiting for motion completion
@@ -67,7 +79,6 @@ class LiveSignatureDetection:
         self.record_instruction = ''
         self.alternative_info = (None, 0, 0)
 
-
         # Timers
         self.idle_timer = float('inf')
         self.hold_down_timer = time()
@@ -77,15 +88,28 @@ class LiveSignatureDetection:
         self.new_fit_done = False
         self.unavailable_flag = False
 
-        # Mappings
-        self.known_seq = IMUSequences(self, self.target_id, seq_filename=sequence_file)
-        self.command_map_file = command_mapping_file
-        self.__pc_dev_map = {'copy': 2, 'paste': 3, 'lclick': 4, 'rclick': 5, 'up': 6, 'down': 7, 'right': 8, 'left': 9,
-                           'tab': 10, 'enter': 11}
-        self.set_at_map(at)
-        self.command_map = self.load_mapping(self.command_map_file)
-        print(self.__at_map)
-        print('self.command_map: ', self.command_map)
+    def fit_from_trainfile(self, filename):
+        self.unavailable_flag = True
+        signals, targets, self.targets_names = utils.load_imu_data(file=filename)
+        print(targets, signals)
+        if not self.targets_names:
+            file_targets = np.array([])
+        else:
+            file_targets = targets[np.sort(np.unique(targets, return_index=True)[1])]
+        tfile_target2name = {ft: name for name, ft in zip(self.targets_names, file_targets)}
+        self.target_id = {name: i for i, name in enumerate(self.targets_names)}  #  sign to #id
+        targets = np.array([self.target_id[tfile_target2name[t]] for t in targets])
+        print('target_id:', self.target_id)
+        print('targets: ', targets)
+        self.train_signals = signals.copy()
+        self.train_targets = targets.copy()
+        self.known_seq = IMUSequences(signals, targets, self.target_id, self.command_map, seq_filename=self.sequence_file)
+        self.refit()
+
+    def load_at_file(self):
+        with open(self.at_file, 'r') as f:
+            string = f.read()
+        return json.loads(string)
 
     def get_at_map(self):
         """
@@ -99,58 +123,44 @@ class LiveSignatureDetection:
         """
         return {v: k for k, v in self.__at_map.items()}   # {2: 'copy', 3: 'paste', 4: 'lclick'}
 
-    def set_at_map(self, at):
-        if at == 'at_pc_dev':
-            self.__at_map = self.__pc_dev_map.copy()
-
     def sequence_detection(self, pred_info):
         """
         :rtype: int
         :type signature: list
         """
-        # signature: prediction
+        # signature:= prediction
         signature = pred_info[0]
-        # print('sequence_detection: signature ', signature)
-        # print('sequence_detection: pred_info ', pred_info)
         k = len(self.targets_names)
-        # print('sequence_detection: k ', k)
         command = self.last_command
         if signature == -1:
-            self.idle_timer = time() + self.switch_released_time_offset
+            self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
             self.last_command = self.last_real_command
             return self.last_real_command
         if signature < k:
-            # print('signature', signature)
             self.curr_seq.append(signature)
             self.idle_timer = time()
-            # print('sequence_detection: signature < k pred_info ', pred_info)
-            # self.alternative_info = (pred_info[2], pred_info[3], pred_info[1] - pred_info[3])
-        elif signature == k and (self.n_missed < self.missed_max):
+        elif signature == k and (self.n_missed < self.MISSED_MAX):
             self.idle_timer = time()
             self.n_missed += 1
         else:  # No significant motion
-            # print(time() - self.idle_timer)
-            if time() - self.idle_timer > self.idle_time_max:  # Timeout
-                # print('timeout')
+            if time() - self.idle_timer > self.IDLE_TIME_MAX:  # Timeout
                 action = self.check_sequence()
                 self.curr_seq = []
                 self.known_seq.possible_sequences = self.known_seq.enabled_sequences
                 if action is not None:  # Action detected
                     command = self.__at_map[self.command_map[action]]
-                    self.idle_timer = time() + self.switch_released_time_offset
+                    self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
                 else:
                     self.last_real_command = self.last_command if self.last_command != 0 else self.last_real_command
                     command = 0
             else:
-                # action = self.forcheck_sequence(alternative=self.alternative_info) # uncoment to use with second choice and reject
                 action = self.forcheck_sequence()
                 if action is not None:  # Action detected
                     self.curr_seq = []
                     self.known_seq.possible_sequences = self.known_seq.enabled_sequences.copy()
                     command = self.__at_map[self.command_map[action]]
-                    self.idle_timer = time() + self.switch_released_time_offset
+                    self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
         self.last_command = command
-        # print(self.curr_seq, command)
         return command
 
     def check_sequence(self):
@@ -206,22 +216,22 @@ class LiveSignatureDetection:
                 # print(self.curr_seq, self.curr_seq == False)
                 if not self.curr_seq:
                     print('offset')
-                    self.idle_timer = time() + self.switch_released_time_offset
+                    self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
                 else:
                     self.idle_timer = time()
                 self.switch_switched = False
-            if self.i_rec < self.window_len:
+            if self.i_rec < self.WINDOW_LEN:
                 self.current_window[:, self.i_rec] = np.array(data)
                 self.i_rec += 1
             else:
                 self.current_window = np.hstack([self.current_window[:, 1::], np.array(data).reshape(-1, 1)])
-                if self.i_buff < self.window_buff_len:
-                    self.window_buff[:, :, self.i_buff] = self.current_window
-                    self.i_buff += 1
+                if self.i_window_buff < self.WINDOW_BUF_LEN:
+                    self.window_buff[:, :, self.i_window_buff] = self.current_window
+                    self.i_window_buff += 1
                 else:
                     self.window_buff = np.dstack([self.window_buff[:, :, 1::], self.current_window])
                 # print(linalg.norm(data[3::]) > self.trigger_tresh)
-            if (mag_accel > self.trigger_tresh[0] or mag_gyro > self.trigger_tresh[
+            if (mag_accel > self.TRIGGER_TRESH[0] or mag_gyro > self.TRIGGER_TRESH[
                 1]) and self.signal_state == 0:  # There is motion // np.sum(np.abs(data[0:3])) > 50 or
                 self.zero_up = self.__find_zero_motion(self.current_window[0:3, :])
                 if self.zero_up is not None:
@@ -232,19 +242,19 @@ class LiveSignatureDetection:
             if self.signal_state == 1:  # Signature live analysis
                 self.inmotion_count += 1
                 # print(self.after_count)
-                if (-self.idle_tol_accel < mag_accel - self.accel_m1 < self.idle_tol_accel) or (
-                        -self.idle_tol_gyro < mag_gyro - self.gyro_m1 < self.idle_tol_gyro):
+                if (-self.IDLE_TOL_ACCEL < mag_accel - self.accel_m1 < self.IDLE_TOL_ACCEL) or (
+                        -self.IDLE_TOL_GYRO < mag_gyro - self.gyro_m1 < self.IDLE_TOL_GYRO):
                     self.after_count += 1
                     # print(self.after_count, mag_accel - self.accel_m1, mag_gyro - self.gyro_m1)
                 else:
                     self.after_count = 0
-                if self.after_count > self.min_after_count:
+                if self.after_count > self.MIN_AFTER_COUNT:
                     acc_var, gyro_var, _, _ = self.__signal_mag_var(
-                        self.current_window[:, -self.inmotion_count - self.idle_pts_before::])
+                        self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::])
                     if self.__mode == 0:  # Live detect
-                        if acc_var > self.acccel_var_tresh and self.inmotion_count < self.window_len:
+                        if acc_var > self.ACCEL_VARIANCE_TRESH and self.inmotion_count < self.WINDOW_LEN:
                             pred = self.clf.predict([s.reshape(1, -1) for s in self.current_window[:,
-                                                                               -self.inmotion_count - self.idle_pts_before::]], with_second_choice=True)
+                                                                               -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::]], with_second_choice=True)
                             print('P R E D I C T: ', pred)
                             print(self.inmotion_count)
                             # if pred < len(self.targets_names):
@@ -255,13 +265,13 @@ class LiveSignatureDetection:
                             # plt.show()
                     elif self.__mode == 1:  # Record signature
                         self.unavailable_flag = True
-                        if acc_var > self.acccel_var_tresh/2 and self.inmotion_count < self.window_len:
-                            if self.example_count < self.required_examples:
+                        if acc_var > self.ACCEL_VARIANCE_TRESH/2 and self.inmotion_count < self.WINDOW_LEN:
+                            if self.example_count < self.REQUIRED_EXAMPLES:
                                 self. new_fit_done = False
-                                self.fit_examples.append(self.current_window[:, -self.inmotion_count - self.idle_pts_before::])
+                                self.fit_examples.append(self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::])
                                 self.example_count += 1
                                 print(self.example_count)
-                            if self.example_count >= self.required_examples:
+                            if self.example_count >= self.REQUIRED_EXAMPLES:
                                 print('compiling new data + train')
                                 utils.append_train_file(self.train_file, self.fit_examples, self.new_target_name)
                                 print('file appended')
@@ -294,7 +304,7 @@ class LiveSignatureDetection:
                 if not self.switch_switched:
                     self.hold_down_timer = time()
                     print('mode = 0 and ssw', self.last_real_command)
-                elif time() - self.hold_down_timer > self.hold_down_tresh:
+                elif time() - self.hold_down_timer > self.HOLD_DOWN_TRESH:
                     pred = (-1, None, None, None)
             self.idle_timer = float('inf')
             self.switch_switched = True
@@ -326,12 +336,12 @@ class LiveSignatureDetection:
     def teach_tresh(self):
         self.__mode = 2
         max_tap, max_swipe = 5, 5
-        the_window = self.current_window[:, -self.inmotion_count - self.idle_pts_before::]
+        the_window = self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::]
         # print(self.tresh_sample)
         if len(self.tresh_sample[0]) + len(self.tresh_sample[1]) == 0:
-            self.store_tresh = (self.trigger_tresh, self.acccel_var_tresh)
-            self.trigger_tresh = [0.75 * tt for tt in self.trigger_tresh]
-            self.acccel_var_tresh *= 0.5
+            self.store_tresh = (self.TRIGGER_TRESH, self.ACCEL_VARIANCE_TRESH)
+            self.TRIGGER_TRESH = [0.75 * tt for tt in self.TRIGGER_TRESH]
+            self.ACCEL_VARIANCE_TRESH *= 0.5
             print('tap')
         if len(self.tresh_sample[0]) < max_tap:
             self.tresh_sample[0].append(the_window)
@@ -359,8 +369,8 @@ class LiveSignatureDetection:
                 var_rec[0].append(tap_var)
                 var_rec[1].append(swipe_var)
             self.__mode = 0
-            self.trigger_tresh = self.store_tresh[0]
-            self.acccel_var_tresh = min(np.quantile(var_rec[0], 0.25), np.quantile(var_rec[1], 0.25))
+            self.TRIGGER_TRESH = self.store_tresh[0]
+            self.ACCEL_VARIANCE_TRESH = min(np.quantile(var_rec[0], 0.25), np.quantile(var_rec[1], 0.25))
 
     def __signal_mag_var(self, signal):
         """
@@ -368,16 +378,16 @@ class LiveSignatureDetection:
         """
         mag_acc = linalg.norm(signal[0:3, :], axis=0)
         mag_gyr = linalg.norm(signal[3::, :], axis=0)
-        dmag_acc = (mag_acc[1::] - mag_acc[0:-1]) / (1 / self.freq)
-        dmag_gyr = (mag_gyr[1::] - mag_gyr[0:-1]) / (1 / self.freq)
+        dmag_acc = (mag_acc[1::] - mag_acc[0:-1]) / (1 / self.FREQ)
+        dmag_gyr = (mag_gyr[1::] - mag_gyr[0:-1]) / (1 / self.FREQ)
         return np.var(mag_acc), np.var(mag_gyr), np.var(dmag_acc), np.var(dmag_gyr)
 
     def __find_zero_motion(self, sensor_signals):
         mag = linalg.norm(sensor_signals, axis=0)
-        tol = self.idle_tol_accel
-        diff = (mag[1::] - mag[0:-1]) * self.freq
+        tol = self.IDLE_TOL_ACCEL
+        diff = (mag[1::] - mag[0:-1]) * self.FREQ
         motion = (diff < tol * 100) & (diff > -tol * 100)  # True = no motion
-        max_idle_pts = self.idle_pts_before
+        max_idle_pts = self.IDLE_PTS_BEFORE_WINDOW
         for n_idle_pts in range(max_idle_pts, max_idle_pts - 3, -1):
             idle = motion[0:-(n_idle_pts - 1)] & motion[1:-(n_idle_pts - 2)]
             for i in range(2, n_idle_pts - 1):
@@ -392,38 +402,6 @@ class LiveSignatureDetection:
                 return zero_motion_point
         return None
 
-    def fit_from_trainfile(self, filename):
-        self.unavailable_flag = True
-        signals, targets, self.targets_names = utils.load_FS_IMU_data(
-            file=filename)
-        print(targets, signals)
-        if not self.targets_names:
-            file_targets = np.array([])
-        else:
-            file_targets = targets[np.sort(np.unique(targets, return_index=True)[1])]
-        tfile_target2name = {ft: name for name, ft in zip(self.targets_names, file_targets)}
-        self.target_id = {name: i for i, name in enumerate(self.targets_names)}  #  sign2#
-        targets = np.array([self.target_id[tfile_target2name[t]] for t in targets])
-        # self.target_id = {name: i for i, name in zip(targets[np.sort(np.unique(targets, return_index=True)[1])], self.targets_names)}
-        print('target_id:', self.target_id)
-        print('targets: ', targets)
-        self.train_signals = signals.copy()
-        self.train_targets = targets.copy()
-        self.known_seq = IMUSequences(self, self.target_id, seq_filename=self.sequence_file)
-        self.refit()
-        # signals, targets = self.known_seq.transform(signals, targets)
-        # try:
-        #     self.clf.fit(signals, targets)
-        # except AssertionError:
-        #     # Only one class
-        #     reject_signals = [sensor[self.train_targets != np.unique(targets)[0]] for sensor in self.train_signals]
-        #     reject_targets = targets.max() * np.ones(reject_signals[0].shape[0])
-        #     all_signal = [np.vstack([good, bad]) for good, bad in zip(signals, reject_signals)]
-        #     all_targets = np.hstack([targets, reject_targets])
-        #     self.clf.fit(all_signal, all_targets)
-        #
-        # print('train preds: ', self.clf.predict(signals))
-
     def refit(self):
         self.unavailable_flag = True
         print('REFIT', end='')
@@ -432,7 +410,7 @@ class LiveSignatureDetection:
             self.clf.fit(signals, targets)
             print('train preds: ', self.clf.predict(signals))
         except AssertionError:
-            # Only one class
+            print('DATASET ERROR')
             reject_signals = [sensor[self.train_targets != np.unique(targets)[0]] for sensor in self.train_signals]
             reject_targets = self.train_targets.max() * np.ones(reject_signals[0].shape[0]) + 1
             all_signal = [np.vstack([good, bad]) for good, bad in zip(signals, reject_signals)]
@@ -459,22 +437,20 @@ class LiveSignatureDetection:
         """
         with open(user_filename, 'r') as fich:
             string = fich.read()
-        # return {'handtap-handtap': 11, 'handtap-swipe': 14, 'swipe-handtap': 66,
-        #         'swipe-swipe': 99, 'swipe-swipe-handtap': 199, 'handtap-handtap-swipe': 111}
-        # print(json.loads(string))
         info = json.loads(string)
         self.at = info[0]
         return info[1]
 
 
 class IMUSequences:
-    def __init__(self, parent, target_id, seq_filename):
+    def __init__(self, x_train, y_train, target_id, cmd_map, seq_filename):
         """
         :type seq_filename: str
         :type target_id: dict
         :type parent: LiveSignatureDetection
         """
-        self.parent = parent
+        # self.parent = parent
+        self.parent = None
         self.target_id = target_id  # {'sign': #}
         self.num2sign = {v: k for k, v in self.target_id.items()}  # {#: 'sign'}
         self.seq_file = seq_filename
@@ -487,19 +463,21 @@ class IMUSequences:
         for key, val in self.sequences_init.items():
             if val:
                 self.enabled_sequences[key] = [target_id[sign] for sign in key.split('-')]  # {'sign_name1-sign_name2': [#1,#2]}
-        # self.enabled_sequences = self.sequences.copy()
         self.possible_sequences = self.enabled_sequences.copy() # {'sign_name1-sign_name2': [#1,#2]}
         self.enabeled_sign = set([subelement for element in [sign.split('-') for sign in self.enabled_sequences.keys()] for subelement in element])
         self.available_sign = set(self.target_id.keys())
         self.enabeled_sign_m1 = self.enabeled_sign.copy()
-        self.used_signals = parent.train_signals.copy()
-        self.used_targets = parent.train_targets.copy()
+        # self.used_signals = parent.train_signals.copy()
+        # self.used_targets = parent.train_targets.copy()
+        self.used_signals = x_train.copy()
+        self.used_targets = y_train.copy()
+        self.command_map = cmd_map
 
     def set_sequence(self, key_list):
         self.enabled_sequences = {}
         self.sequences_init = {key: 0 for key in self.sequences_init.keys()}
         for key in key_list:
-            if self.parent.command_map.get(key) is not None:
+            if self.command_map.get(key) is not None:
                 self.enabled_sequences[key] = self.sequences[key]
             self.sequences_init[key] = 1
         print('self.enabled_sequences: ', self.enabled_sequences)
@@ -564,35 +542,29 @@ class IMUSequences:
                 except KeyError:
                     pass
         self.save_init_modif()
-        # for seq in self.sequences.keys():
-        #     if not any(ele in seq for ele in sign_names):
-        #         self.sequences.pop(seq)
-        # for seq in self.enabled_sequences.keys():
-        #     if not any(ele in seq for ele in sign_names):
-        #         self.enabled_sequences.pop(seq)
-        # for seq in self.possible_sequences.keys():
-        #     if not any(ele in seq for ele in sign_names):
-        #         self.possible_sequences.pop(seq)
+
 
     def transform(self, signals, targets):
         if not self.enabeled_sign:
             return [], []
-        old_signals = self.used_signals.copy()
-        old_targets = self.used_targets.copy()
+        # new_signals = self.used_signals.copy()
+        # new_targets = self.used_targets.copy()
+        new_signals = self.used_signals
+        new_targets = self.used_targets
         if self.enabeled_sign != self.available_sign:  # cut sign
             for unused_sign in self.available_sign - self.enabeled_sign:
                 id = self.target_id[unused_sign]
-                for s, sensor in enumerate(old_signals):
-                    old_signals[s] = np.delete(sensor, np.where(old_targets == id)[0], axis=0)
-                old_targets = old_targets[old_targets != id]
+                for s, sensor in enumerate(new_signals):
+                    new_signals[s] = np.delete(sensor, np.where(new_targets == id)[0], axis=0)
+                new_targets = new_targets[new_targets != id]
             for reused_sign in self.enabeled_sign - self.available_sign:  # add sign
                 id = self.target_id[reused_sign]
                 for s, sensor in enumerate(signals):
-                    old_signals[s] = np.vstack([old_signals[s], sensor[targets == id, :]])
-                old_targets = np.hstack([old_targets, id * np.ones(len(targets[targets == id]), dtype=int)])
-        self.available_sign = {self.num2sign[t] for t in np.unique(old_targets)}
-        self.used_signals = old_signals
-        self.used_targets = old_targets
+                    new_signals[s] = np.vstack([new_signals[s], sensor[targets == id, :]])
+                new_targets = np.hstack([new_targets, id * np.ones(len(targets[targets == id]), dtype=int)])
+        self.available_sign = {self.num2sign[t] for t in np.unique(new_targets)}
+        self.used_signals = new_signals
+        self.used_targets = new_targets
         return self.used_signals , self.used_targets
 
     def sign_is_changed(self):

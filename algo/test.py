@@ -17,7 +17,7 @@ if __name__== "__main__":
     stest = []
     cm = np.zeros((6, 6))
     for _ in range(30):
-        signals, targets, targets_names = utils.load_FS_IMU_data()
+        signals, targets, targets_names = utils.load_imu_data()
         X_train, X_test, y_train, y_test = utils.split_signals(signals, targets, 5)
         sd = ImuSignDetectClassifier()
         sd.fit(X_train, y_train)

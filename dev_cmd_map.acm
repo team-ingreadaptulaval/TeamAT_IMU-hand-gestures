@@ -1,1 +1,1 @@
-["at_pc_dev", {"tap-tap": "up"}]
+["at_pc_dev", {"tap": "up", "tap-tap": "down", "swipe-swipe": "right"}]

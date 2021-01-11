@@ -9,6 +9,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigCan
 import matplotlib.pyplot as plt
 import numpy as np
 import time
+import os
 from comthread import TCPThread, KeySwitch
 from livesigndetect import LiveSignatureDetection
 import json
@@ -22,13 +23,16 @@ class Window(QMainWindow):
 
     def __init__(self):
         super().__init__()
-
         self.window_len = 200
-        # TODO: load last used files
-        self.sd = LiveSignatureDetection(at='at_pc_dev', sequence_file='IMUsequences.asq', command_mapping_file='dev_cmd_map.acm', window_len=self.window_len, freq=100)
+        at_file, sequence_file, command_mapping_file = self.get_recently_used_settings_files()
+        trainset_file = self.get_recent_train_set()
+        self.sd = LiveSignatureDetection(at_file=at_file, sequence_file=sequence_file,
+                                         command_mapping_file=command_mapping_file, trainset_file=trainset_file,
+                                         window_len=self.window_len, freq=100)
         self.cmd_map_file = self.sd.command_map_file
         self.sign2num = self.sd.target_id
         self.num2sign = {v: k for k, v in self.sign2num.items()}
+        # QWindow settings
         title = 'IMU SignDetect'
         self.top = 100
         self.left = 100
@@ -45,36 +49,41 @@ class Window(QMainWindow):
         self.setCentralWidget(self.layout)
         self.plot_init()
         self.ui_init()
-
+        # Thread handling data for socket
         self.mySerial = TCPThread()
         self.mySerial.start()
         self.mySerial.str_recieved.connect(self.handle_new_data)
+        # Thread handling the switch
         self.switch = KeySwitch('Num_Lock')
         self.switch.start()
+        # Thread handling the mouse and keyboard
         self.hid = pc_control.HIDCom()
         self.hid.start()
 
         self.check_table_init()
         self.sign_record_init()
-
         self.show()
 
-    def sign_record_init(self):
-        self.text_sign_instruct = QTextEdit(self)
-        self.text_sign_instruct.setReadOnly(True)
-        self.text_sign_instruct.setTextColor(Qt.red)
-        # self.text_sign_instruct.setStyleSheet("""QTextEdit {border-top: 1px solid black; border-bottom: 1px solid black;}""")
-        self.layout.add_widget(self.text_sign_instruct, 0, 0, h=2)
-        self.text_sign_instruct.hide()
+    def get_recently_used_settings_files(self):
+        '''
+        return: 3 files containing json objects
+            at_command_file : mapping str: int of the AT modes e.g. {"copy": 2, "paste": 3, "lclick": 4, "rclick": 5}
+            enabeled_sequences_file : what are the sequences and which one are checked e.g. {"tap-tap": 1, "tap": 0}
+            mapping_file : length-2 array [name of the AT, {sequence: mode}] e.g.  ["at_pc_dev", {"tap-tap": "up", "tap": "down"}]
+        '''
+        # TODO: to be implemented
+        return 'at_pc_dev.at', 'IMUsequences.asq', 'dev_cmd_map.acm'
+
+    def get_recent_train_set(self):
+        #TODO: to be implemented
+        return 'variable_len_plus.sd'
+
+    def plot_init(self):
+        self.canvas = Canvas(self, width=self.width//100, height=self.height//100//3, dpi=100, window_len=self.window_len, n_lines=3, y_lims=(-20, 20))
+        self.layout.add_widget(self.canvas, 2, 0)
 
     def ui_init(self):
         self.menubar_init()
-        # button_layout = MyGridLayout()
-        # self.button_record = QPushButton('Enregistrer\nsequence', self)
-        # self.button_stop = QPushButton('Stop', self)
-        # button_layout.add_widget(self.button_record, 0, 0)
-        # button_layout.add_widget(self.button_stop, 1, 0)
-        # self.layout.add_widget(button_layout, 1, 0)
         self.textedit_log = QTextEdit(self)
         self.textedit_log.setReadOnly(True)
         self.textedit_log.setFixedWidth(400)
@@ -105,7 +114,7 @@ class Window(QMainWindow):
 
         manage_seq_act = QAction('&Manage sequence', self)
         manage_seq_act.setStatusTip('Build and delete sequences')
-        manage_seq_act.triggered.connect(self.manage_sequence)
+        manage_seq_act.triggered.connect(self.manage_sequence_checking)
 
         new_mapping_act = QAction('&New command mapping', self)
         new_mapping_act.setStatusTip('Create new command mapping for assistive device')
@@ -131,43 +140,14 @@ class Window(QMainWindow):
         at_menu.addAction(manage_mapping_act)
         at_menu.addAction(load_mapping_act)
 
-    def plot_init(self):
-        self.canvas = Canvas(self, width=self.width//100, height=self.height//100//3, dpi=100, window_len=self.window_len, n_lines=3, y_lims=(-20, 20))
-        self.layout.add_widget(self.canvas, 2, 0)
 
-    # def check_table_init(self):
-    #     self.seq_list = QListWidget(self)
-    #     # self.seq_list.setGeometry(800, 200, 600, 600)
-    #     self.seq_list.setObjectName("Sequences")
-    #     # self.seq_list.show()
-    #     i = 0
-    #     for key, val in self.sd.known_seq.sequences_init.items():
-    #         item = QListWidgetItem()
-    #         item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-    #         if val:
-    #             item.setCheckState(Qt.Checked)
-    #         else:
-    #             item.setCheckState(Qt.Unchecked)
-    #         self.seq_list.addItem(item)
-    #         self.seq_list.item(i).setText(key)
-    #         i += 1
-    #     self.seq_list.show()
-    #
-    #     confusion = self.sd.known_seq.evaluate_confusion()
-    #     for i in range(self.seq_list.count()):
-    #         self.seq_list.item(i).setForeground(Qt.black)
-    #     self.shade_confusion(confusion)
-    #     self.seq_list.itemChanged.connect(self.checked_sequences)  # Itemselectioncha
-    #     self.layout.add_widget(self.seq_list, 1, 1)
+
     def check_table_init(self):
         self.seq_list = QTreeWidget(self)
-        # print(self.seq_list.font().family())
         self.seq_list.setFont(QFont('MS Shell Dlg 2', 18))
         self.seq_list.setStyleSheet("""QTreeWidget::item {border-top: 1px solid black; border-bottom: 1px solid black;}""")
-        # self.seq_list.setGeometry(800, 200, 600, 600)
         self.seq_list.setObjectName("Sequences")
         self.seq_list.setHeaderLabels(['Sequence', 'Command'])
-        # self.seq_list.show()
         for key, val in self.sd.known_seq.sequences_init.items():
             item = QTreeWidgetItem(self.seq_list)
             item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
@@ -177,23 +157,24 @@ class Window(QMainWindow):
                 item.setCheckState(0, Qt.Unchecked)
             item.setText(0, key)
             item.setText(1, self.sd.command_map.get(key))
-            # item.setFont()
-            # self.seq_list.addItem(item)
-        # self.seq_list.setMinimumWidth(self.seq_list.sizeHintForColumn(0))
-        # sp = self.seq_list.sizePolicy()
-        # sp.setHorizontalPolicy(QSizePolicy.Maximum)
-        # self.seq_list.setSizePolicy
         print(self.seq_list.frameWidth())
         self.seq_list.setColumnWidth(0, 500)
         self.seq_list.show()
 
         confusion = self.sd.known_seq.evaluate_confusion()
         root = self.seq_list.invisibleRootItem()
-        for i in range(root.childCount()):  # self.seq_list.count()
-            root.child(i).setForeground(0, Qt.black) # self.seq_list.item(i).setForeground(Qt.black)
+        for i in range(root.childCount()):
+            root.child(i).setForeground(0, Qt.black)
         self.shade_confusion(confusion)
-        self.seq_list.itemChanged.connect(self.checked_sequences)  # Itemselectioncha
+        self.seq_list.itemChanged.connect(self.checked_sequences)
         self.layout.add_widget(self.seq_list, 0, 0, h=2)
+
+    def sign_record_init(self):
+        self.text_sign_instruct = QTextEdit(self)
+        self.text_sign_instruct.setReadOnly(True)
+        self.text_sign_instruct.setTextColor(Qt.red)
+        self.layout.add_widget(self.text_sign_instruct, 0, 0, h=2)
+        self.text_sign_instruct.hide()
 
     def handle_new_data(self, data):
         self.mySerial.set_command_string(self.sd.handle_new_data(data, self.switch.state))
@@ -234,7 +215,7 @@ class Window(QMainWindow):
         except FileNotFoundError:
             pass
 
-    def manage_sequence(self):
+    def manage_sequence_checking(self):
         self.seq_list.itemChanged.disconnect()
         seq_manager = ManageSequenceDialog(self)
         seq_manager.exec()
@@ -244,12 +225,9 @@ class Window(QMainWindow):
             item.setCheckState(0, Qt.Checked)
             item.setText(0, new_seq)
             item.setText(1, '')
-            # self.seq_list.addItem(item)
         root = self.seq_list.invisibleRootItem()
         for i in seq_manager.idx_to_del[::-1]:
             root.removeChild(root.child(i))
-            # self.seq_list.takeItem(self.seq_list.row(item))
-
         self.seq_list.itemChanged.connect(self.checked_sequences)
 
     def load_mapping(self):
@@ -319,7 +297,6 @@ class Window(QMainWindow):
         if curr_seq != self.lineedit_cs.text():
             self.lineedit_cs.setText(curr_seq)
 
-
     def delete_sign(self):
         items = self.sd.targets_names
         item, okPressed = QInputDialog.getItem(self, "Delete sign", "Sign designation:", items, 0, False)
@@ -331,13 +308,10 @@ class Window(QMainWindow):
         self.seq_list.close()
         self.__delattr__('seq_list')
         self.check_table_init()
-        # self.sd.command_map.pop
-        # with open(self.parent().cmd_map_file, 'w') as fich:
-        #     fich.write(json.dumps([self.box_at_choice.currentText(), self.mapping]))
 
     def reset_table(self):
         root = self.seq_list.invisibleRootItem()
-        for i in range(root.childCount()):  # self.seq_list.count()
+        for i in range(root.childCount()):
             root.child(i).setText(1, self.sd.command_map.get(root.child(i).text(0)))
         print(self.sd.command_map)
 
@@ -355,13 +329,6 @@ class Window(QMainWindow):
             j += 1
 
     def item2num(self, item_list):
-        # num_list = []
-        # for item_str in item_list:
-        #     for i in range(self.seq_list.count()):
-        #         if self.seq_list.item(i).text() == item_str:
-        #             num_list.append(i)
-        #             break
-        # return num_list
         num_list = []
         root = self.seq_list.invisibleRootItem()
         for item_str in item_list:
@@ -386,43 +353,28 @@ class Window(QMainWindow):
         print(ls)
         confusion = self.sd.known_seq.set_sequence(ls)
         print('sign comp', self.sd.known_seq.enabeled_sign, self.sd.known_seq.available_sign)
-        # if self.sd.known_seq.enabeled_sign != self.sd.known_seq.available_sign:
         if self.sd.known_seq.sign_is_changed():
             self.sd.refit()
         self.shade_confusion(confusion)
         self.seq_list.itemChanged.connect(self.checked_sequences)
-        # ls = []
-        # print('-------')
-        # self.seq_list.itemChanged.disconnect()
-        # for i in range(self.seq_list.count()):
-        #     self.seq_list.item(i).setForeground(Qt.black)
-        # for i in range(self.seq_list.count()):
-        #     if self.seq_list.item(i).checkState() == Qt.Checked:
-        #         ls.append(self.seq_list.item(i).text())
-        # confusion = self.sd.known_seq.set_sequence(ls)
-        # self.shade_confusion(confusion)
-        # self.seq_list.itemChanged.connect(self.checked_sequences)
 
     def log(self, must_differ=False, *kargs):
         max_lines = 10
-        # print(kargs)
         text = ', '.join([str(piece) for piece in kargs])
         if must_differ:
             if text != self.textedit_log.toPlainText().split(sep='\n')[-1]:
                 self.textedit_log.append(text)
         else:
             self.textedit_log.append(text)
-        # self.line_edit_log.setText(self.line_edit_log.text() + '\n\r' + text)
 
     def closeEvent(self, event):
-        # here you can terminate your threads and do other stuff
         self.mySerial.terminate()
         self.switch.terminate()
         print('treads closing')
         self.sd.known_seq.save_init_modif()
-        # and afterwards call the closeEvent of the super-class
         print('close event')
         super(QMainWindow, self).closeEvent(event)
+
 
 class ManageCommand(QDialog):
 
@@ -444,10 +396,17 @@ class ManageCommand(QDialog):
 
     def ui_init(self):
         self.confirm_layout = MyGridLayout()
-        # self.line_edit_file = QLineEdit
         self.at_label = QLabel('Choose AT')
         self.box_at_choice = QComboBox(self)
-        self.box_at_choice.addItem('at_pc_dev')
+        selected_at = i = 0
+        for filename in os.listdir():
+            if filename.endswith(".at"):
+                at = filename.split('.')[0]
+                if at == self.parent().sd.at:
+                    selected_at = i
+                i += 1
+                self.box_at_choice.addItem(filename[0:-3])
+        self.box_at_choice.setCurrentIndex(1)
         self.at = self.box_at_choice.currentText()
         self.box_at_choice.currentTextChanged.connect(self.set_at)
         self.button_cancel = QPushButton('Cancel', self)
@@ -469,7 +428,6 @@ class ManageCommand(QDialog):
         self.table.setAcceptDrops(True)
         self.table.setDragEnabled(True)
         self.table.setDefaultDropAction(Qt.MoveAction)
-        # self.table.setDragDropMode(QAbstractItemView.InternalMove)
         for i, seq in enumerate(seqs.keys()):
             item = QTableWidgetItem()
             item.setText(seq)
@@ -481,14 +439,12 @@ class ManageCommand(QDialog):
                     item.setText(self.parent().sd.command_map[seq])
                 except KeyError:
                     pass
-            # item.setFlags(Qt.ItemIsEditable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled | Qt.ItemIsEnabled)
             self.table.setItem(i, 1, item)
 
     def cmd_list_init(self):
         self.cmds = QListWidget(self)
         for cmd in self.at_map.keys():
             item = QListWidgetItem()
-                # item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             item.setText(cmd)
             self.cmds.addItem(item)
         self.cmds.setAcceptDrops(False)
@@ -511,12 +467,11 @@ class ManageCommand(QDialog):
         self.at = self.box_at_choice.currentText()
         print(self.at)
 
+
 class ManageSequenceDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
-        # self.layout = MyGridLayout(self)
-        # self.setCentralWidget(self.layout)
         self.setWindowTitle('Sequence Manger')
         self.setGeometry(200, 200, 1000, 500)
         self.new_seq = []
@@ -539,10 +494,8 @@ class ManageSequenceDialog(QDialog):
         self.button_del.clicked.connect(self.delete_sequences)
         self.button_ok = QPushButton('Done', self)
         self.button_ok.clicked.connect(self.close)
-        # self.button_cancel = QPushButton('Cancel', self)
         self.confirm_layout.add_widget(self.button_del, 0, 0)
         self.confirm_layout.add_widget(self.button_ok, 1, 0)
-        # self.confirm_layout.add_widget(self.button_cancel, 2, 0)
 
     def seq_table_init(self):
         self.seq_list = QListWidget(self)
@@ -579,7 +532,6 @@ class ManageSequenceDialog(QDialog):
             user_confirm.exec()
 
     def user_confirm_decision(self, val):
-        # print(user_confirm.text())
         if val.text() == 'OK':
             try:
                 self.parent().sd.known_seq.save_new_sequence(self.new_seq[-1])
@@ -625,8 +577,6 @@ class Canvas(FigCan):
 
     def __init__(self, parent=None, width=5, height=5, dpi=100, window_len=100, n_lines=6, y_lims=(-10, 15)):
         fig, self.axes = plt.subplots(2, 1, figsize=(width, height), dpi=dpi)
-        # fig = plt.figure(figsize=(width, height), dpi=dpi)
-        # self.axes = [fig.add_subplot(121), fig.add_subplot(122)]
         self.axes[0].set_ylim(*y_lims)
         self.axes[1].set_ylim(-10, 10)
         self.plotter = [RealtimePlot(self.axes[0], window_len=window_len, n_lines=n_lines),
@@ -643,15 +593,11 @@ class Canvas(FigCan):
 
 
     def plot(self, data):
-        # self.plotter.plot(data)
         self.count += 1
         if self.count >= 1:
             self.plotter[0].plot(data[0:3, :])
             self.plotter[1].plot(data[3::, :])
             self.count = 0
-            # plt.draw()
-            # self.axes[0].draw_artist(self.plotter.lineplot[0][0])
-
 
 
 class RealtimePlot:
@@ -660,26 +606,10 @@ class RealtimePlot:
         self.n_lines = n_lines
         colors = 'rgbcmk'
         self.lineplot = [axes.plot(np.arange(window_len), np.zeros(window_len), c) for c in colors[0:n_lines]]
-        # self.lineplot = [axes.plot(np.arange(window_len), np.zeros(window_len), "r-"),
-        #                  axes.plot(np.arange(window_len), np.zeros(window_len), "g-"),
-        #                  axes.plot(np.arange(window_len), np.zeros(window_len), "b-"),
-        #                  axes.plot(np.arange(window_len), np.zeros(window_len), "c-"),
-        #                  axes.plot(np.arange(window_len), np.zeros(window_len), "m-"),
-        #                  axes.plot(np.arange(window_len), np.zeros(window_len), "k-")]
         self.window_len = window_len
-        # self.lineplot, = axes.plot(np.arange(100), np.zeros(100), "r-")
-        # self.lineplot2, = axes.plot(np.arange(100), np.zeros(100), "b-")
-        # self.lineplot3, = axes.plot(np.arange(100), np.zeros(100), "g-")
 
 
     def plot(self, dataPlot):
         x = np.arange(dataPlot.shape[1])
-        # self.lineplot[0][0].set_data(x, dataPlot[0, :])
-        # self.lineplot[1][0].set_data(x, dataPlot[1, :])
-        # self.lineplot[2][0].set_data(x, dataPlot[2, :])
-
-        # print(dataPlot[0, :])
         for lp, dp in zip(self.lineplot, dataPlot):
             lp[0].set_data(x, dp)
-
-        # self.axes.relim()
