@@ -6,6 +6,8 @@ import sys
 import traceback
 from threading import Thread, Lock
 from queue import Queue
+import os
+from pid import PidFile
 
 
 class MultiClientServer:
@@ -86,5 +88,9 @@ def decodestr(reception):
     return (reception[0], [float(num) for num in reception[1::]])
 
 if __name__ == "__main__":
-    mcs = MultiClientServer()
-    mcs.start_server()
+    with PidFile('signdetectsocket', os.getcwd()) as p:
+        try:
+            mcs = MultiClientServer()
+            mcs.start_server()
+        except KeyboardInterrupt:
+            print('closing local server')
