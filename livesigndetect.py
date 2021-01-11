@@ -103,7 +103,7 @@ class LiveSignatureDetection:
         print('targets: ', targets)
         self.train_signals = signals.copy()
         self.train_targets = targets.copy()
-        self.known_seq = IMUSequences(signals, targets, self.target_id, self.command_map, seq_filename=self.sequence_file)
+        self.sequence_context = IMUSequences(signals, targets, self.target_id, self.command_map, seq_filename=self.sequence_file)
         self.refit()
 
     def load_at_file(self):
@@ -146,7 +146,7 @@ class LiveSignatureDetection:
             if time() - self.idle_timer > self.IDLE_TIME_MAX:  # Timeout
                 action = self.check_sequence()
                 self.curr_seq = []
-                self.known_seq.possible_sequences = self.known_seq.enabled_sequences
+                self.sequence_context.possible_sequences = self.sequence_context.enabled_sequences
                 if action is not None:  # Action detected
                     command = self.__at_map[self.command_map[action]]
                     self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
@@ -157,14 +157,14 @@ class LiveSignatureDetection:
                 action = self.forcheck_sequence()
                 if action is not None:  # Action detected
                     self.curr_seq = []
-                    self.known_seq.possible_sequences = self.known_seq.enabled_sequences.copy()
+                    self.sequence_context.possible_sequences = self.sequence_context.enabled_sequences.copy()
                     command = self.__at_map[self.command_map[action]]
                     self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
         self.last_command = command
         return command
 
     def check_sequence(self):
-        for keys, seqs in self.known_seq.possible_sequences.items():
+        for keys, seqs in self.sequence_context.possible_sequences.items():
             if self.curr_seq == seqs:
                 return keys
         return None
@@ -173,7 +173,7 @@ class LiveSignatureDetection:
         uptodate_seq = self.curr_seq
         if len(uptodate_seq) == 0:
             return None
-        seqs = self.known_seq.possible_sequences
+        seqs = self.sequence_context.possible_sequences
         cropt_seqs = {}
         for key, values in seqs.items():
             cropt_seqs[key] = values[0:len(uptodate_seq)]
@@ -184,7 +184,7 @@ class LiveSignatureDetection:
             for key, val in cropt_seqs.items():
                 if val == uptodate_seq:
                     filtered_seqs[key] = seqs[key]
-            self.known_seq.possible_sequences = filtered_seqs
+            self.sequence_context.possible_sequences = filtered_seqs
             return None
         else:
             if alternative is not None:
@@ -278,7 +278,7 @@ class LiveSignatureDetection:
                                 self.fit_from_trainfile(self.train_file)
                                 self.example_count = 0
                                 # self.__mode = 0
-                                self.known_seq.target_id = self.target_id
+                                self.sequence_context.target_id = self.target_id
                                 self.new_fit_done = True
                                 self.unavailable_flag = False
                                 print('teching done')
@@ -324,7 +324,7 @@ class LiveSignatureDetection:
         """
         :type sign: str
         """
-        self.known_seq.clear_seq_on_sign_deleted(sign)
+        self.sequence_context.clear_seq_on_sign_deleted(sign)
         utils.delete_from_train_file(self.train_file, sign)
         self.fit_from_trainfile(self.train_file)
         for key in self.command_map.copy().keys():
@@ -405,7 +405,7 @@ class LiveSignatureDetection:
     def refit(self):
         self.unavailable_flag = True
         print('REFIT', end='')
-        signals, targets = self.known_seq.transform(self.train_signals, self.train_targets)
+        signals, targets = self.sequence_context.transform(self.train_signals, self.train_targets)
         try:
             self.clf.fit(signals, targets)
             print('train preds: ', self.clf.predict(signals))
@@ -449,8 +449,6 @@ class IMUSequences:
         :type target_id: dict
         :type parent: LiveSignatureDetection
         """
-        # self.parent = parent
-        self.parent = None
         self.target_id = target_id  # {'sign': #}
         self.num2sign = {v: k for k, v in self.target_id.items()}  # {#: 'sign'}
         self.seq_file = seq_filename
@@ -467,8 +465,6 @@ class IMUSequences:
         self.enabeled_sign = set([subelement for element in [sign.split('-') for sign in self.enabled_sequences.keys()] for subelement in element])
         self.available_sign = set(self.target_id.keys())
         self.enabeled_sign_m1 = self.enabeled_sign.copy()
-        # self.used_signals = parent.train_signals.copy()
-        # self.used_targets = parent.train_targets.copy()
         self.used_signals = x_train.copy()
         self.used_targets = y_train.copy()
         self.command_map = cmd_map
@@ -495,12 +491,10 @@ class IMUSequences:
                 cropt_seqs[ckey] = cvalues[0:len(values)]
             duplicate = utils.dictfind_duplicate(dict0=cropt_seqs, val_to_compare=values)
             if len(duplicate) > 1:
-                confusion += (duplicate,)
-        # print(confusion)
+                confusion += (duplicate, )
         return confusion
 
     def save_new_sequence(self, seq):
-        # print(sequences)
         if self.sequences.get(seq) is not None:
             raise IndexError
         else:
@@ -529,10 +523,9 @@ class IMUSequences:
 
     def clear_seq_on_sign_deleted(self, sign):
         self.target_id.pop(sign)
-        sign_names = list(self.target_id.keys())
+        # sign_names = list(self.target_id.keys())
         seq_to_pop = []
         for seq in self.sequences_init.keys():
-            # if not any(ele in seq.split('-') for ele in sign_names):
             if sign in seq.split('-'):
                 seq_to_pop.append(seq)
         for seq in seq_to_pop:
@@ -547,8 +540,6 @@ class IMUSequences:
     def transform(self, signals, targets):
         if not self.enabeled_sign:
             return [], []
-        # new_signals = self.used_signals.copy()
-        # new_targets = self.used_targets.copy()
         new_signals = self.used_signals
         new_targets = self.used_targets
         if self.enabeled_sign != self.available_sign:  # cut sign

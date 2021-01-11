@@ -148,7 +148,7 @@ class Window(QMainWindow):
         self.seq_list.setStyleSheet("""QTreeWidget::item {border-top: 1px solid black; border-bottom: 1px solid black;}""")
         self.seq_list.setObjectName("Sequences")
         self.seq_list.setHeaderLabels(['Sequence', 'Command'])
-        for key, val in self.sd.known_seq.sequences_init.items():
+        for key, val in self.sd.sequence_context.sequences_init.items():
             item = QTreeWidgetItem(self.seq_list)
             item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             if val:
@@ -161,7 +161,7 @@ class Window(QMainWindow):
         self.seq_list.setColumnWidth(0, 500)
         self.seq_list.show()
 
-        confusion = self.sd.known_seq.evaluate_confusion()
+        confusion = self.sd.sequence_context.evaluate_confusion()
         root = self.seq_list.invisibleRootItem()
         for i in range(root.childCount()):
             root.child(i).setForeground(0, Qt.black)
@@ -351,9 +351,9 @@ class Window(QMainWindow):
             elif root.child(i).checkState(0) == Qt.Checked:
                 ls.append(root.child(i).text(0))
         print(ls)
-        confusion = self.sd.known_seq.set_sequence(ls)
-        print('sign comp', self.sd.known_seq.enabeled_sign, self.sd.known_seq.available_sign)
-        if self.sd.known_seq.sign_is_changed():
+        confusion = self.sd.sequence_context.set_sequence(ls)
+        print('sign comp', self.sd.sequence_context.enabeled_sign, self.sd.sequence_context.available_sign)
+        if self.sd.sequence_context.sign_is_changed():
             self.sd.refit()
         self.shade_confusion(confusion)
         self.seq_list.itemChanged.connect(self.checked_sequences)
@@ -371,7 +371,7 @@ class Window(QMainWindow):
         self.mySerial.terminate()
         self.switch.terminate()
         print('treads closing')
-        self.sd.known_seq.save_init_modif()
+        self.sd.sequence_context.save_init_modif()
         print('close event')
         super(QMainWindow, self).closeEvent(event)
 
@@ -420,7 +420,7 @@ class ManageCommand(QDialog):
 
     def association_table_init(self):
         self.table = QTableWidget(self)
-        seqs = self.parent().sd.known_seq.sequences_init
+        seqs = self.parent().sd.sequence_context.sequences_init
         n_rows = len(seqs)
         self.n_seqs = n_rows
         self.table.setRowCount(n_rows)
@@ -500,7 +500,7 @@ class ManageSequenceDialog(QDialog):
     def seq_table_init(self):
         self.seq_list = QListWidget(self)
         i = 0
-        for key, val in self.parent().sd.known_seq.sequences_init.items():
+        for key, val in self.parent().sd.sequence_context.sequences_init.items():
             item = QListWidgetItem()
             item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             item.setCheckState(Qt.Unchecked)
@@ -515,7 +515,7 @@ class ManageSequenceDialog(QDialog):
         for i, cb in enumerate(self.signs):
             self.combo_layout.add_widget(cb, i, 0)
             cb.addItem('-')
-            for sign in self.parent().sd.known_seq.target_id.keys():
+            for sign in self.parent().sd.sequence_context.target_id.keys():
                 cb.addItem(sign)
 
     def add_to_seqs(self):
@@ -534,7 +534,7 @@ class ManageSequenceDialog(QDialog):
     def user_confirm_decision(self, val):
         if val.text() == 'OK':
             try:
-                self.parent().sd.known_seq.save_new_sequence(self.new_seq[-1])
+                self.parent().sd.sequence_context.save_new_sequence(self.new_seq[-1])
                 item = QListWidgetItem()
                 item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
                 item.setCheckState(Qt.Unchecked)
@@ -556,7 +556,7 @@ class ManageSequenceDialog(QDialog):
         for i in idx_to_del[::-1]:
             item = self.seq_list.item(i)
             self.seq_list.takeItem(self.seq_list.row(item))
-        self.parent().sd.known_seq.delete_sequence(seq_to_del)
+        self.parent().sd.sequence_context.delete_sequence(seq_to_del)
         self.idx_to_del = idx_to_del
         self.close()
 
