@@ -7,3 +7,6 @@ new_data/
 variable_len_data/
 .idea/
 __pycache__
+xsens_py_interface/cpp_xsapi_back/
+xsens_py_interface/awinda_app/
+*.pid

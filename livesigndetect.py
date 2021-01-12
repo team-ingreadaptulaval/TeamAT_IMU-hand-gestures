@@ -123,6 +123,56 @@ class LiveSignatureDetection:
         """
         return {v: k for k, v in self.__at_map.items()}   # {2: 'copy', 3: 'paste', 4: 'lclick'}
 
+    def handle_new_data(self, data, switch_pressed):
+        """
+        :rtype: str
+        :type switch_pressed: int, bool
+        :type data: list
+        """
+        pred = (len(self.targets_names) + 1, None, None, None)
+        mag_accel = linalg.norm(data[0:3])
+        mag_gyro = linalg.norm(data[3::])
+        if not switch_pressed:
+            if self.switch_switched:
+                self.adjust_idle_timer()
+            self.handle_sliding_window(data)
+            if self.waiting_for_motion():
+                if self.motion_detected(mag_gyro, mag_gyro):  # There is motion //
+                    self.zero_up = self.__find_zero_motion(self.current_window[0:3, :])
+                    if self.zero_up is not None:
+                        self.window_wait = self.zero_up
+                        self.signal_state = 1
+            if self.waiting_for_motion_complete():  # Signature live analysis
+                self.inmotion_count += 1
+                if not self.is_significant_motion(mag_accel, mag_gyro):
+                    self.after_count += 1
+                else:
+                    self.after_count = 0
+                if self.motion_completed():
+                    if self.__mode == 0:
+                        pred = self.predict_current_window()
+                    elif self.__mode == 1:
+                        self.handle_new_signature_recording()
+                    elif self.__mode == 2:
+                        print('teach thresholds')
+                        self.teach_thresh()
+                    self.after_count = 0
+                    self.signal_state = 0
+                    self.inmotion_count = 0
+        else:  # Switch on
+            if self.last_command == 0: # no command
+                if not self.switch_switched:
+                    self.hold_down_timer = time()
+                elif time() - self.hold_down_timer > self.HOLD_DOWN_TRESH:
+                    pred = [self.last_real_command]
+            self.idle_timer = float('inf')
+            self.switch_switched = True
+        self.accel_m1 = mag_accel
+        self.gyro_m1 = mag_gyro
+        command = self.sequence_detection(pred)
+        self.command_string = f'signdetect,{command},{switch_pressed}'
+        return self.command_string
+
     def sequence_detection(self, pred_info):
         """
         :rtype: int
@@ -131,37 +181,41 @@ class LiveSignatureDetection:
         # signature:= prediction
         signature = pred_info[0]
         k = len(self.targets_names)
-        command = self.last_command
-        if signature == -1:
+        last_command = self.last_command
+        if signature == -1: # No sign
             self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
             self.last_command = self.last_real_command
             return self.last_real_command
-        if signature < k:
+        if signature < k: # one of the available sign
             self.curr_seq.append(signature)
             self.idle_timer = time()
-        elif signature == k and (self.n_missed < self.MISSED_MAX):
+        elif signature == k and (self.n_missed < self.MISSED_MAX): # reject
             self.idle_timer = time()
             self.n_missed += 1
         else:  # No significant motion
-            if time() - self.idle_timer > self.IDLE_TIME_MAX:  # Timeout
-                action = self.check_sequence()
-                self.curr_seq = []
-                self.sequence_context.possible_sequences = self.sequence_context.enabled_sequences
-                if action is not None:  # Action detected
-                    command = self.__at_map[self.command_map[action]]
-                    self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
-                else:
-                    self.last_real_command = self.last_command if self.last_command != 0 else self.last_real_command
-                    command = 0
+            self.compute_command(last_command)
+        return self.last_command
+
+    def compute_command(self, last_command):
+        command = last_command
+        if time() - self.idle_timer > self.IDLE_TIME_MAX:  # Timeout
+            action = self.check_sequence()
+            self.curr_seq = []
+            self.sequence_context.possible_sequences = self.sequence_context.enabled_sequences
+            if action is not None:  # Action detected
+                command = self.__at_map[self.command_map[action]]
+                self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
             else:
-                action = self.forcheck_sequence()
-                if action is not None:  # Action detected
-                    self.curr_seq = []
-                    self.sequence_context.possible_sequences = self.sequence_context.enabled_sequences.copy()
-                    command = self.__at_map[self.command_map[action]]
-                    self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
+                self.last_real_command = self.last_command if self.last_command != 0 else self.last_real_command
+                command = 0
+        else:
+            action = self.forcheck_sequence()
+            if action is not None:  # Action detected
+                self.curr_seq = []
+                self.sequence_context.possible_sequences = self.sequence_context.enabled_sequences.copy()
+                command = self.__at_map[self.command_map[action]]
+                self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
         self.last_command = command
-        return command
 
     def check_sequence(self):
         for keys, seqs in self.sequence_context.possible_sequences.items():
@@ -201,124 +255,57 @@ class LiveSignatureDetection:
             print('here', alternative)
             return None
 
-    def handle_new_data(self, data, switch):
-        """
-        :rtype: str
-        :type switch: int, bool
-        :type data: list
-        """
-        # print(self.signal_state)
-        pred = (len(self.targets_names) + 1, None, None, None)
-        mag_accel = linalg.norm(data[0:3])
-        mag_gyro = linalg.norm(data[3::])
-        if not switch:
-            if self.switch_switched:
-                # print(self.curr_seq, self.curr_seq == False)
-                if not self.curr_seq:
-                    print('offset')
-                    self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
-                else:
-                    self.idle_timer = time()
-                self.switch_switched = False
-            if self.i_rec < self.WINDOW_LEN:
-                self.current_window[:, self.i_rec] = np.array(data)
-                self.i_rec += 1
+    def handle_sliding_window(self, data):
+        if self.i_rec < self.WINDOW_LEN:
+            self.current_window[:, self.i_rec] = np.array(data)
+            self.i_rec += 1
+        else:
+            self.current_window = np.hstack([self.current_window[:, 1::], np.array(data).reshape(-1, 1)])
+            if self.i_window_buff < self.WINDOW_BUF_LEN:
+                self.window_buff[:, :, self.i_window_buff] = self.current_window
+                self.i_window_buff += 1
             else:
-                self.current_window = np.hstack([self.current_window[:, 1::], np.array(data).reshape(-1, 1)])
-                if self.i_window_buff < self.WINDOW_BUF_LEN:
-                    self.window_buff[:, :, self.i_window_buff] = self.current_window
-                    self.i_window_buff += 1
-                else:
-                    self.window_buff = np.dstack([self.window_buff[:, :, 1::], self.current_window])
-                # print(linalg.norm(data[3::]) > self.trigger_tresh)
-            if (mag_accel > self.TRIGGER_TRESH[0] or mag_gyro > self.TRIGGER_TRESH[
-                1]) and self.signal_state == 0:  # There is motion // np.sum(np.abs(data[0:3])) > 50 or
-                self.zero_up = self.__find_zero_motion(self.current_window[0:3, :])
-                if self.zero_up is not None:
-                    self.window_wait = self.zero_up
-                    self.signal_state = 1
-                    # print(self.signal_state)
-            # IDLE METHOD
-            if self.signal_state == 1:  # Signature live analysis
-                self.inmotion_count += 1
-                # print(self.after_count)
-                if (-self.IDLE_TOL_ACCEL < mag_accel - self.accel_m1 < self.IDLE_TOL_ACCEL) or (
-                        -self.IDLE_TOL_GYRO < mag_gyro - self.gyro_m1 < self.IDLE_TOL_GYRO):
-                    self.after_count += 1
-                    # print(self.after_count, mag_accel - self.accel_m1, mag_gyro - self.gyro_m1)
-                else:
-                    self.after_count = 0
-                if self.after_count > self.MIN_AFTER_COUNT:
-                    acc_var, gyro_var, _, _ = self.__signal_mag_var(
-                        self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::])
-                    if self.__mode == 0:  # Live detect
-                        if acc_var > self.ACCEL_VARIANCE_TRESH and self.inmotion_count < self.WINDOW_LEN:
-                            pred = self.clf.predict([s.reshape(1, -1) for s in self.current_window[:,
-                                                                               -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::]], with_second_choice=True)
-                            print('P R E D I C T: ', pred)
-                            print(self.inmotion_count)
-                            # if pred < len(self.targets_names):
-                            # print(mag_accel, mag_gyro)
-                            # plt.figure()
-                            # plt.plot(linalg.norm(self.current_window[0:3, -self.inmotion_count - self.idle_pts_before::], axis=0))
-                            # plt.plot(linalg.norm(self.current_window[3::, -self.inmotion_count - self.idle_pts_before::], axis=0))
-                            # plt.show()
-                    elif self.__mode == 1:  # Record signature
-                        self.unavailable_flag = True
-                        if acc_var > self.ACCEL_VARIANCE_TRESH/2 and self.inmotion_count < self.WINDOW_LEN:
-                            if self.example_count < self.REQUIRED_EXAMPLES:
-                                self. new_fit_done = False
-                                self.fit_examples.append(self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::])
-                                self.example_count += 1
-                                print(self.example_count)
-                            if self.example_count >= self.REQUIRED_EXAMPLES:
-                                print('compiling new data + train')
-                                utils.append_train_file(self.train_file, self.fit_examples, self.new_target_name)
-                                print('file appended')
-                                self.fit_from_trainfile(self.train_file)
-                                self.example_count = 0
-                                # self.__mode = 0
-                                self.sequence_context.target_id = self.target_id
-                                self.new_fit_done = True
-                                self.unavailable_flag = False
-                                print('teching done')
-                            # np.savetxt(fname=f'train_{self.save_count}.csv',
-                            #            X=self.current_window[:, -self.inmotion_count - self.idle_pts_before::],
-                            #            delimiter=',')
-                            # plt.plot(
-                            #     linalg.norm(self.current_window[0:3, -self.inmotion_count - self.idle_pts_before::],
-                            #                 axis=0).T)
-                            # plt.plot(
-                            #     linalg.norm(self.current_window[3::, -self.inmotion_count - self.idle_pts_before::],
-                            #                 axis=0).T)
-                            # plt.show()
-                            # self.save_count += 1
-                    elif self.__mode == 2:  # Teach tresholds
-                        print('teach')
-                        self.teach_tresh()
-                    self.after_count = 0
-                    self.signal_state = 0
-                    self.inmotion_count = 0
-        else:  # Switch on
-            if self.last_command == 0:
-                if not self.switch_switched:
-                    self.hold_down_timer = time()
-                    print('mode = 0 and ssw', self.last_real_command)
-                elif time() - self.hold_down_timer > self.HOLD_DOWN_TRESH:
-                    pred = (-1, None, None, None)
-            self.idle_timer = float('inf')
-            self.switch_switched = True
-            # print('switch on')
-        self.accel_m1 = mag_accel
-        self.gyro_m1 = mag_gyro
-        try:
-            command = self.sequence_detection(pred)
-        except KeyError:
-            command = self.last_command # NOt sure...
-            print('command not mapped')
-        self.command_string = f'signdetect,{command},{switch}'
-        # print(self.command_string)
-        return self.command_string
+                self.window_buff = np.dstack([self.window_buff[:, :, 1::], self.current_window])
+
+    def adjust_idle_timer(self):
+        if not self.curr_seq:
+            print('offset')
+            self.idle_timer = time() + self.SWITCH_RELEASE_TIME_OFFSET
+        else:
+            self.idle_timer = time()
+        self.switch_switched = False
+
+    def predict_current_window(self):
+        pred = [self.last_command]
+        acc_var, gyro_var, _, _ = self.__signal_mag_var(
+            self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::])
+        if acc_var > self.ACCEL_VARIANCE_TRESH and self.inmotion_count < self.WINDOW_LEN:
+            pred = self.clf.predict([s.reshape(1, -1) for s in self.current_window[:,
+                                                               -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::]], with_second_choice=True)
+            print('P R E D I C T: ', pred)
+        return pred
+
+    def handle_new_signature_recording(self):
+        acc_var, gyro_var, _, _ = self.__signal_mag_var(
+            self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::])
+        self.unavailable_flag = True
+        if acc_var > self.ACCEL_VARIANCE_TRESH/2 and self.inmotion_count < self.WINDOW_LEN:
+            if self.example_count < self.REQUIRED_EXAMPLES:
+                self.new_fit_done = False
+                self.fit_examples.append(self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::])
+                self.example_count += 1
+                print(self.example_count)
+            if self.example_count >= self.REQUIRED_EXAMPLES:
+                print('compiling new data + train')
+                utils.append_train_file(self.train_file, self.fit_examples, self.new_target_name)
+                print('file appended')
+                self.fit_from_trainfile(self.train_file)
+                self.example_count = 0
+                # self.__mode = 0
+                self.sequence_context.target_id = self.target_id
+                self.new_fit_done = True
+                self.unavailable_flag = False
+                print('teching done')
 
     def delete_sign(self, sign):
         """
@@ -333,7 +320,7 @@ class LiveSignatureDetection:
         with open(self.command_map_file, 'w') as f:
             f.write(json.dumps([self.at, self.command_map]))
 
-    def teach_tresh(self):
+    def teach_thresh(self):
         self.__mode = 2
         max_tap, max_swipe = 5, 5
         the_window = self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::]
@@ -441,6 +428,21 @@ class LiveSignatureDetection:
         self.at = info[0]
         return info[1]
 
+    def is_significant_motion(self, current_accel, current_gyro):
+        return not((-self.IDLE_TOL_ACCEL < current_accel - self.accel_m1 < self.IDLE_TOL_ACCEL) or
+                   (-self.IDLE_TOL_GYRO < current_gyro - self.gyro_m1 < self.IDLE_TOL_GYRO))
+
+    def waiting_for_motion_complete(self):
+        return self.signal_state == 1
+
+    def waiting_for_motion(self):
+        return self.signal_state == 0
+
+    def motion_completed(self):
+        return self.after_count > self.MIN_AFTER_COUNT
+
+    def motion_detected(self, accel, gyro):
+        return (accel > self.TRIGGER_TRESH[0] or gyro > self.TRIGGER_TRESH[1])
 
 class IMUSequences:
     def __init__(self, x_train, y_train, target_id, cmd_map, seq_filename):
