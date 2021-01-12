@@ -1,3 +1,0 @@
-C:/Users/teamat/Documents/LocalSignDectect/step13 IMU_algo/xsens_py_interface/cpp_xsapi_back/windows_cpp_client_socket/cmake-build-release/CMakeFiles/windows_cpp_client_socket.dir
-C:/Users/teamat/Documents/LocalSignDectect/step13 IMU_algo/xsens_py_interface/cpp_xsapi_back/windows_cpp_client_socket/cmake-build-release/CMakeFiles/edit_cache.dir
-C:/Users/teamat/Documents/LocalSignDectect/step13 IMU_algo/xsens_py_interface/cpp_xsapi_back/windows_cpp_client_socket/cmake-build-release/CMakeFiles/rebuild_cache.dir
