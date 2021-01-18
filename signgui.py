@@ -72,11 +72,11 @@ class Window(QMainWindow):
             mapping_file : length-2 array [name of the AT, {sequence: mode}] e.g.  ["at_pc_dev", {"tap-tap": "up", "tap": "down"}]
         '''
         # TODO: to be implemented
-        return 'at_pc_dev.at', 'IMUsequences.asq', 'dev_cmd_map.acm'
+        return 'Setup Files/at_pc_dev.at', 'Setup Files/IMUsequences.asq', 'Setup Files/dev_cmd_map.acm'
 
     def get_recent_train_set(self):
         #TODO: to be implemented
-        return 'variable_len_plus.sd'
+        return 'Setup Files/user_train_set.sd'
 
     def plot_init(self):
         self.canvas = Canvas(self, width=self.width//100, height=self.height//100//3, dpi=100, window_len=self.window_len, n_lines=3, y_lims=(-20, 20))

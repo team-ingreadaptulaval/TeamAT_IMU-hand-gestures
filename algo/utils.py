@@ -163,7 +163,7 @@ def std_scale(data):
 #     targets = np.vstack(targets).reshape(-1)
 #     return signals, targets, target_names
 
-def load_imu_data(file='../my_data/IMU_data.pkl'):
+def load_imu_data(file):
     with open(file, 'rb') as f:
         seq_bin = f.read()
         data = pkl.loads(seq_bin)
