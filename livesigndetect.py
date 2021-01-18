@@ -2,7 +2,6 @@ from algo.imusigndetect import *
 from algo import utils
 import numpy as np
 from numpy import linalg
-import matplotlib.pyplot as plt
 from time import sleep
 import json
 

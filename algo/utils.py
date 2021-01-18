@@ -15,121 +15,11 @@ import glob
 from itertools import chain
 
 
-
-def plot_clustering3D(X_red, labels, title):
-    # Tiré de https://scikit-learn.org/stable/auto_examples/cluster/plot_digits_linkage.html
-    # Auteur : Gael Varoquaux
-    # Distribué sous license BSD
-
-    x_min, x_max = np.min(X_red, axis=0), np.max(X_red, axis=0)
-    X_red = (X_red - x_min) / (x_max - x_min)
-
-    # plt.figure(figsize=(9, 6), dpi=160)
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-    for i in range(X_red.shape[0]):
-        ax.text(X_red[i, 0], X_red[i, 1], X_red[i, 2], str(labels[i]),
-                    color=plt.cm.nipy_spectral(labels[i] / 10.)) #,fontdict={'weight': 'bold', 'size': 9}
-
-    # plt.xticks([])
-    # plt.yticks([])
-    plt.title(title, size=17)
-    # plt.axis('off')
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.axis('equal')
-    plt.show()
-
-def plot_clustering(X_red, labels, title):
-    # Tiré de https://scikit-learn.org/stable/auto_examples/cluster/plot_digits_linkage.html
-    # Auteur : Gael Varoquaux
-    # Distribué sous license BSD
-
-    x_min, x_max = np.min(X_red, axis=0), np.max(X_red, axis=0)
-    X_red = (X_red - x_min) / (x_max - x_min)
-
-    # plt.figure(figsize=(9, 6), dpi=160)
-    fig = plt.figure()
-
-    for i in range(X_red.shape[0]):
-        fig.text(X_red[i, 0], X_red[i, 1], str(labels[i]),
-                    color=plt.cm.nipy_spectral(labels[i] / 10.)) #,fontdict={'weight': 'bold', 'size': 9}
-
-    plt.xticks([])
-    plt.yticks([])
-    plt.title(title, size=17)
-    plt.axis('off')
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    # plt.axis('equal')
-    plt.show()
-
-def plot_1d_feature(feat, targets, signal_names=('ax', 'ay', 'az', 'gx', 'gy', 'gz'), title=''):
-    n_signals = len(feat)
-    fig, axs = plt.subplots(2, n_signals//2, tight_layout=True)
-    target_names = np.arange(0, 10)
-    colors = np.array([x for x in "bgrcmyk"])
-    for i, (f, ax) in enumerate(zip(feat, axs.reshape(-1))):
-        for t in set(targets):
-            ft = np.array(f)[targets==t]
-            ax.scatter(t * np.ones(ft.shape), ft, color=colors[t].tolist(), s=40, edgecolor='k', linewidth=1, label=target_names[t])  #
-        ax.set_title(signal_names[i])
-        ax.set_xticks([])
-        ax.legend()
-    fig.suptitle(title)
-    plt.show()
-
 def sma(x, y, z):
     X = np.sum(np.abs(x), axis=1)
     Y = np.sum(np.abs(y), axis=1)
     Z = np.sum(np.abs(z), axis=1)
     return np.sum((X, Y, Z), axis=0)
-
-def fit_1d_signal(template, signal, plots=False):
-    t0 = time()
-    if plots:
-        plt.figure()
-        plt.plot(template, label='template')
-        plt.plot(signal, label='signal')
-    template -= np.mean(template)
-    template /= (np.max(template) - np.min(template))
-    signal -= np.mean(signal)
-    signal /= (np.max(signal) - np.min(signal))
-    signal = signal.reshape(-1)
-    template = template.reshape(-1)
-    if plots:
-        plt.figure()
-        plt.plot(template, label='template')
-        plt.plot(signal, label='signal')
-    corr, lag = xcorr(template, signal)
-    lagdiff = int(lag[np.where(np.abs(corr) == np.max(np.abs(corr)))[0]])
-    if lagdiff > 0:
-        template = np.delete(template, np.s_[0:lagdiff], axis=0)
-    else:
-        signal = np.delete(signal, np.s_[0:-lagdiff], axis=0)
-    if len(template) < len(signal):
-        signal = np.delete(signal, np.s_[len(template):len(signal)])
-    else:
-        template = np.delete(template, np.s_[len(signal):len(template)])
-    if plots:
-        plt.figure()
-        plt.plot(template, label='template')
-        plt.plot(signal, label='signal')
-        plt.show()
-    correlation = np.corrcoef(template.reshape(-1), signal.reshape(-1))
-    print(correlation, time() - t0)
-
-
-def xcorr(A, B):
-    len_diff = len(A) - len(B)
-    try:
-        if len_diff >= 0:
-            B = np.hstack([B, B[-1] * np.ones((abs(len_diff), ))])
-        else:
-            A = np.hstack([A, A[-1] * np.ones((abs(len_diff), ))])
-    except IndexError:
-        3
-    corr = np.correlate(A.reshape(-1), B.reshape(-1), 'full')
-    lag = np.arange(-(corr.size - 1) / 2, (corr.size - 1) / 2 + 1)
-    return corr, lag
 
 def nancorrelation(*kargs):
     nan_pos = find_first_nan(kargs[0])
@@ -148,14 +38,10 @@ def correlation(x, y, z):
 
 def _fft(y, L, handle_nans=False, acq_freq=100, plotit=False):
     if handle_nans and len(y.shape) != 1:
-        # indices = np.vstack(np.where(np.isnan(y)))
-        # diff = indices[0, 1::] - indices[0, 0:-1]
-        # changes = indices[1, np.hstack([np.ones(1), diff]) == 1]
         freqs = []
         fft_theos = []
         nan_pos = find_first_nan(y)
         for row, npos in zip(y, nan_pos):
-            # row[np::] = row[np - 1]
             n = npos
             L = n/acq_freq
             freq = np.fft.fftfreq(n, L/n)
@@ -206,7 +92,6 @@ def fft_energy(fft_theo):
     integral = np.nansum(fft_theo, axis=1)
     return peak / integral
 
-
 def lowpass_filter(data, tau, freq):
     ts = 1/freq
     if len(data.shape) == 1:
@@ -242,9 +127,6 @@ def make_cuts(signal, n_cuts):
             for j, row in enumerate(signal)
         ])
         yield this_cut
-        # cuts.append(this_cut)
-    # return cuts
-
 
 def find_first_nan(array):
     table = pd.DataFrame(array)
@@ -255,33 +137,31 @@ def find_first_nan(array):
 def std_scale(data):
     return  (data - np.mean(data)) / np.std(data)
 
-def load_IMU_data(file):
-    with open(file, 'rb') as f:
-        seq_bin = f.read()
-        data = pkl.loads(seq_bin)
-    signals = [[], [], [], [], [], []]
-    targets = []
-    target_names = []
-    for key, value in data.items():
-        target_names.append(key)
-        for i in range(6):
-            signals[i].append(value[1][i].values)
-        set_len, series_len = value[1][0].values.shape
-        targets.append(value[0] * np.ones((set_len, 1), dtype=int))
-    s_len = [s.shape[1] for s in signals[0]]
-    if all(x == s_len[0] for x in s_len):
-        signals = [np.vstack(s) for s in signals]
-    else:
-        max_len = max(s_len)
-        for ids, s in enumerate(signals):
-            for idc, c in enumerate(s):
-                if c.shape[1] != max_len:
-                    signals[ids][idc] = np.hstack([c, np.full((c.shape[0], max_len - c.shape[1]), np.nan)])
-        signals = [np.vstack(s) for s in signals]
-        # min_len = min(s_len)
-        # signals = [np.vstack([class_s[:, 0:min_len] for class_s in s]) for s in signals]
-    targets = np.vstack(targets).reshape(-1)
-    return signals, targets, target_names
+# def load_IMU_data_other(file):
+#     with open(file, 'rb') as f:
+#         seq_bin = f.read()
+#         data = pkl.loads(seq_bin)
+#     signals = [[], [], [], [], [], []]
+#     targets = []
+#     target_names = []
+#     for key, value in data.items():
+#         target_names.append(key)
+#         for i in range(6):
+#             signals[i].append(value[1][i].values)
+#         set_len, series_len = value[1][0].values.shape
+#         targets.append(value[0] * np.ones((set_len, 1), dtype=int))
+#     s_len = [s.shape[1] for s in signals[0]]
+#     if all(x == s_len[0] for x in s_len):
+#         signals = [np.vstack(s) for s in signals]
+#     else:
+#         max_len = max(s_len)
+#         for ids, s in enumerate(signals):
+#             for idc, c in enumerate(s):
+#                 if c.shape[1] != max_len:
+#                     signals[ids][idc] = np.hstack([c, np.full((c.shape[0], max_len - c.shape[1]), np.nan)])
+#         signals = [np.vstack(s) for s in signals]
+#     targets = np.vstack(targets).reshape(-1)
+#     return signals, targets, target_names
 
 def load_imu_data(file='../my_data/IMU_data.pkl'):
     with open(file, 'rb') as f:
@@ -308,8 +188,6 @@ def load_imu_data(file='../my_data/IMU_data.pkl'):
                 if c.shape[1] != max_len:
                     signals[ids][idc] = np.hstack([c, np.full((c.shape[0], max_len - c.shape[1]), np.nan)])
         signals = [np.vstack(s) for s in signals]
-        # min_len = min(s_len)
-        # signals = [np.vstack([class_s[:, 0:min_len] for class_s in s]) for s in signals]
     targets = np.vstack(targets).reshape(-1)
     return signals, targets, target_names
 
@@ -338,13 +216,11 @@ def make_file_from_csvs(out_filename, dir_path):
         f.write(pkl.dumps(data_dict))
 
 def append_train_file(current_file_name, new_examples, new_target_name):
-    # signals, targets, target_names = load_FS_IMU_data(current_file_name)
     with open(current_file_name, 'rb') as f:
         seq_bin = f.read()
         current_data = pkl.loads(seq_bin)
     if current_data.get(new_target_name) is not None:
         print('overwriting sing ' + new_target_name)
-        # raise ValueError
     print(current_data, type(current_data))
     if current_data:
         existing_targets = [val[0] for val in current_data.values()]
@@ -377,9 +253,7 @@ def split_signals(signals, targets, train_size):
     train_signals = [[], [], [], [], [], []]
     test_signals = [[], [], [], [], [], []]
     test_targets = []
-    # normal_sizes = [99, 103, 90, 94, 100]
     for c in range(len(set(targets))):
-        # i_sample = np.random.randint(0, signals_by_class[0][c].shape[0], train_size, )
         i_sample = np.random.choice(np.arange(signals_by_class[0][c].shape[0], dtype=int), train_size, replace=False)
         test_targets.append((signals_by_class[0][c].shape[0] - train_size) * [c])
         for i_signal, s in enumerate(signals_by_class):
@@ -401,7 +275,6 @@ def ar_coeff(series, p=2):
         R = np.zeros((p, p))
         for k in range(p):
             R[k, :] = np.array([r2[int(np.abs(k - i))] for i in range(p)])
-        # phi.append(np.dot(np.linalg.inv(R), r1.reshape(r1.shape[0], 1)))
         phi[s, :] = np.linalg.solve(R, r1.reshape(r1.shape[0], 1)).reshape(-1)
     return phi
 

@@ -4,7 +4,6 @@ import sys
 import os
 import time
 import subprocess
-from pid import PidFile
 
 
 if __name__== "__main__":
