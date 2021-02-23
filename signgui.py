@@ -72,7 +72,13 @@ class Window(QMainWindow):
             mapping_file : length-2 array [name of the AT, {sequence: mode}] e.g.  ["at_pc_dev", {"tap-tap": "up", "tap": "down"}]
         '''
         # TODO: to be implemented
-        return 'Setup Files/at_pc_dev.at', 'Setup Files/IMUsequences.asq', 'Setup Files/dev_cmd_map.acm'
+        cmd_map_file = 'Setup Files/dev_cmd_map.acm'
+        if not os.path.isfile(cmd_map_file):
+            cmd_map_file = 'Setup Files/dev_cmd_map.acm'
+            with open(cmd_map_file, 'w') as f:
+                f.write(json.dumps(["at_pc_dev", {}]))
+
+        return 'Setup Files/at_pc_dev.at', 'Setup Files/IMUsequences.asq', cmd_map_file
 
     def get_recent_train_set(self):
         #TODO: to be implemented
@@ -183,7 +189,7 @@ class Window(QMainWindow):
         self.handle_cs_indications()
         self.handle_check_table()
         # print(self.sd.current_window.shape)
-        # self.canvas.plot(self.sd.current_window)
+        self.canvas.plot(self.sd.current_window)
 
     def handle_check_table(self):
         root = self.seq_list.invisibleRootItem()
@@ -193,7 +199,7 @@ class Window(QMainWindow):
                     self.seq_list.itemChanged.disconnect()
                     root.child(i).setSelected(True)
                     for c in range(2):
-                        root.child(i).setForeground(c, Qt.red)
+                        root.child(i).setForeground(c, Qt.green)
                         root.child(i).setBackground(c, Qt.black)
                     self.seq_list.itemChanged.connect(self.checked_sequences)
             else:
@@ -208,10 +214,13 @@ class Window(QMainWindow):
     def create_new_command_mapping(self):
         creator = ManageCommand(parent=self, new=True)
         creator.exec()
-        filename = QFileDialog.getSaveFileName(self, 'Save new mapping', '', 'AT command map (*acm);;All Files (*)')
+        # filename = QFileDialog.getSaveFileName(self, 'Save new mapping', '', 'AT command map (*acm);;All Files (*)')
+        filename = ['Setup Files/dev_cmd_map.acm']
+        print('new to dump: ', [creator.at, creator.mapping])
         try:
             with open(filename[0], 'w') as fich:
                 fich.write(json.dumps([creator.at, creator.mapping]))
+            self.load_mapping(filename=filename)
         except FileNotFoundError:
             pass
 
@@ -222,7 +231,7 @@ class Window(QMainWindow):
         for new_seq in seq_manager.new_seq:
             item = QTreeWidgetItem(self.seq_list)
             item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            item.setCheckState(0, Qt.Checked)
+            item.setCheckState(0, Qt.Unchecked)
             item.setText(0, new_seq)
             item.setText(1, '')
         root = self.seq_list.invisibleRootItem()
@@ -230,11 +239,14 @@ class Window(QMainWindow):
             root.removeChild(root.child(i))
         self.seq_list.itemChanged.connect(self.checked_sequences)
 
-    def load_mapping(self):
-        filename = QFileDialog.getOpenFileName(self, 'Load mapping', os.getcwd(), 'AT command map (*acm);;All Files (*)')
+    def load_mapping(self, filename=None):
+        # print('load mapping filename: ', filename)
+        if filename is None or not filename:
+            filename = QFileDialog.getOpenFileName(self, 'Load mapping', os.getcwd(), 'AT command map (*acm);;All Files (*)')
         try:
             self.sd.command_map = self.sd.load_mapping(filename[0])
             self.reset_table()
+            self.sd.refit()
             print(self.cmd_map_file)
         except FileNotFoundError:
             pass
@@ -242,7 +254,8 @@ class Window(QMainWindow):
     def manage_mapping(self):
         mapper = ManageCommand(parent=self)
         mapper.exec()
-        self.sd.command_map = mapper.mapping.copy()
+        # self.sd.command_map = mapper.mapping.copy()
+        self.sd.command_map = self.sd.load_mapping()
         self.reset_table()
 
     def record_new_sign(self):
@@ -271,6 +284,7 @@ class Window(QMainWindow):
                 print('self.text_sign_instruct.hide()')
                 self.sd.set_mode(0)
                 self.rec_sign_init = True
+                self.sd.new_fit_done = False
                 print('record finished')
                 self.sign2num = self.sd.target_id
                 self.num2sign = {v: k for k, v in self.sign2num.items()}
@@ -313,7 +327,8 @@ class Window(QMainWindow):
         root = self.seq_list.invisibleRootItem()
         for i in range(root.childCount()):
             root.child(i).setText(1, self.sd.command_map.get(root.child(i).text(0)))
-        print(self.sd.command_map)
+            root.child(i).setCheckState(0, Qt.Checked)
+        print('reset table -- ', self.sd.command_map)
 
     def shade_confusion(self, confusion):
         root = self.seq_list.invisibleRootItem()
@@ -351,12 +366,14 @@ class Window(QMainWindow):
             elif root.child(i).checkState(0) == Qt.Checked:
                 ls.append(root.child(i).text(0))
         print(ls)
+
         confusion = self.sd.sequence_context.set_sequence(ls)
         print('sign comp', self.sd.sequence_context.enabeled_sign, self.sd.sequence_context.available_sign)
         if self.sd.sequence_context.sign_is_changed():
             self.sd.refit()
         self.shade_confusion(confusion)
         self.seq_list.itemChanged.connect(self.checked_sequences)
+
 
     def log(self, must_differ=False, *kargs):
         max_lines = 10
@@ -399,14 +416,14 @@ class ManageCommand(QDialog):
         self.at_label = QLabel('Choose AT')
         self.box_at_choice = QComboBox(self)
         selected_at = i = 0
-        for filename in os.listdir():
+        for filename in os.listdir('Setup Files'):
             if filename.endswith(".at"):
                 at = filename.split('.')[0]
                 if at == self.parent().sd.at:
                     selected_at = i
                 i += 1
                 self.box_at_choice.addItem(filename[0:-3])
-        self.box_at_choice.setCurrentIndex(1)
+        self.box_at_choice.setCurrentIndex(0)
         self.at = self.box_at_choice.currentText()
         self.box_at_choice.currentTextChanged.connect(self.set_at)
         self.button_cancel = QPushButton('Cancel', self)
@@ -594,7 +611,7 @@ class Canvas(FigCan):
 
     def plot(self, data):
         self.count += 1
-        if self.count >= 1:
+        if self.count >= 10:
             self.plotter[0].plot(data[0:3, :])
             self.plotter[1].plot(data[3::, :])
             self.count = 0

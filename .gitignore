@@ -10,3 +10,4 @@ __pycache__
 xsens_py_interface/cpp_xsapi_back/
 xsens_py_interface/awinda_app/
 *.pid
+figures/

@@ -23,7 +23,7 @@ class LiveSignatureDetection:
         # self.known_seq = IMUSequences(self, self.target_id, seq_filename=sequence_file)
         self.command_map_file = command_mapping_file
         self.__at_map = self.load_at_file()
-        self.command_map = self.load_mapping(self.command_map_file)
+        self.command_map = self.load_mapping(self.command_map_file, True)
         print(self.__at_map)
         print('self.command_map: ', self.command_map)
 
@@ -35,7 +35,7 @@ class LiveSignatureDetection:
 
         # Constants
         self.FREQ = freq
-        self.IDLE_TOL_ACCEL = 20 / self.FREQ
+        self.IDLE_TOL_ACCEL = 15 / self.FREQ
         self.IDLE_TOL_GYRO = 1 / self.FREQ
         self.WINDOW_BUF_LEN = self.FREQ
         self.WINDOW_LEN = window_len
@@ -46,7 +46,7 @@ class LiveSignatureDetection:
         self.IDLE_TIME_MAX = 1.5
         self.MISSED_MAX = 1
         self.SWITCH_RELEASE_TIME_OFFSET = 2
-        self.REQUIRED_EXAMPLES = 10
+        self.REQUIRED_EXAMPLES = 5
         self.HOLD_DOWN_TRESH = 2
         self.N_SENSORS = 6
 
@@ -151,7 +151,7 @@ class LiveSignatureDetection:
                     if self.__mode == 0:
                         pred = self.predict_current_window()
                     elif self.__mode == 1:
-                        self.handle_new_signature_recording()
+                        self.handle_new_signature_recording(mag_accel, mag_gyro)
                     elif self.__mode == 2:
                         print('teach thresholds')
                         self.teach_thresh()
@@ -284,10 +284,11 @@ class LiveSignatureDetection:
             print('P R E D I C T: ', pred)
         return pred
 
-    def handle_new_signature_recording(self):
+    def handle_new_signature_recording(self, acc, gyr):
         acc_var, gyro_var, _, _ = self.__signal_mag_var(
             self.current_window[:, -self.inmotion_count - self.IDLE_PTS_BEFORE_WINDOW::])
         self.unavailable_flag = True
+        print(self.is_significant_motion(acc, gyr),)
         if acc_var > self.ACCEL_VARIANCE_TRESH/2 and self.inmotion_count < self.WINDOW_LEN:
             if self.example_count < self.REQUIRED_EXAMPLES:
                 self.new_fit_done = False
@@ -297,6 +298,7 @@ class LiveSignatureDetection:
             if self.example_count >= self.REQUIRED_EXAMPLES:
                 print('compiling new data + train')
                 utils.append_train_file(self.train_file, self.fit_examples, self.new_target_name)
+                self.fit_examples = []
                 print('file appended')
                 self.fit_from_trainfile(self.train_file)
                 self.example_count = 0
@@ -390,7 +392,8 @@ class LiveSignatureDetection:
 
     def refit(self):
         self.unavailable_flag = True
-        print('REFIT', end='')
+        print('REFIT')
+        print(self.train_targets)
         signals, targets = self.sequence_context.transform(self.train_signals, self.train_targets)
         try:
             self.clf.fit(signals, targets)
@@ -416,15 +419,20 @@ class LiveSignatureDetection:
         self.__mode = mode
         print(self.__mode)
 
-    def load_mapping(self, user_filename):
+    def load_mapping(self, user_filename=None, init=False):
         """
         :type user_filename: str
         :rtype: dict
         """
+        print('user_filename', user_filename)
+        if user_filename is None:
+            user_filename = self.command_map_file
         with open(user_filename, 'r') as fich:
             string = fich.read()
         info = json.loads(string)
         self.at = info[0]
+        if not init:
+            self.sequence_context.command_map = info[1]
         return info[1]
 
     def is_significant_motion(self, current_accel, current_gyro):
@@ -442,6 +450,9 @@ class LiveSignatureDetection:
 
     def motion_detected(self, accel, gyro):
         return (accel > self.TRIGGER_TRESH[0] or gyro > self.TRIGGER_TRESH[1])
+
+    def update_enabeled_seqs(self, checklist):
+        self.sequence_context.update_seq_file(checklist)
 
 class IMUSequences:
     def __init__(self, x_train, y_train, target_id, cmd_map, seq_filename):
@@ -471,6 +482,8 @@ class IMUSequences:
         self.command_map = cmd_map
 
     def set_sequence(self, key_list):
+        print('set sequence1', key_list, self.command_map)
+        self.update_seq_file(key_list)
         self.enabled_sequences = {}
         self.sequences_init = {key: 0 for key in self.sequences_init.keys()}
         for key in key_list:
@@ -479,9 +492,11 @@ class IMUSequences:
             self.sequences_init[key] = 1
         print('self.enabled_sequences: ', self.enabled_sequences)
         self.possible_sequences = self.enabled_sequences.copy()
+        print('set sequence2', self.enabeled_sign)
         self.enabeled_sign = set(
             [subelement for element in [sign.split('-') for sign in self.enabled_sequences.keys()] for subelement in
              element])
+        print('set sequence3', self.enabeled_sign)
         return self.evaluate_confusion()
 
     def evaluate_confusion(self):
@@ -500,7 +515,7 @@ class IMUSequences:
             raise IndexError
         else:
             print('Seq finale', seq)
-            self.sequences_init[seq] = 1
+            self.sequences_init[seq] = 0
             self.sequences[seq] = [self.target_id[sign] for sign in seq.split('-')]
             self.enabled_sequences[seq] = self.sequences[seq].copy()
             self.possible_sequences = self.enabled_sequences.copy()
@@ -517,8 +532,8 @@ class IMUSequences:
                 pass
         self.save_init_modif()
 
-
     def save_init_modif(self):
+        print(self.sequences_init)
         with open(self.seq_file, 'w') as fich:
             fich.write(json.dumps(self.sequences_init))
 
@@ -539,6 +554,7 @@ class IMUSequences:
 
 
     def transform(self, signals, targets):
+        print('transform->enabeled_sign', self.enabeled_sign)
         if not self.enabeled_sign:
             return [], []
         new_signals = self.used_signals
@@ -558,6 +574,19 @@ class IMUSequences:
         self.used_signals = new_signals
         self.used_targets = new_targets
         return self.used_signals , self.used_targets
+
+    def update_seq_file(self, checked_seqs):
+        with open(self.seq_file, 'r') as f:
+            content = f.read()
+        content = json.loads(content)
+        for seq in content.keys():
+            if seq in checked_seqs:
+                content[seq] = 1
+            else:
+                content[seq] = 0
+        with open(self.seq_file, 'w') as f:
+            f.write(json.dumps(content))
+
 
     def sign_is_changed(self):
         changed = False

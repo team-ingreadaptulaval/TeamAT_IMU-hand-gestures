@@ -36,20 +36,21 @@ class HIDCom(QThread):
 
             if self.init or self.data != self.data_m1:
                 self.init = False
+                self.mouse.fresh_switch = True
                 # print(self.data)
                 self.data_m1 =self.data.copy()
-                print(self.data, flush=True)
+                # print(self.data, flush=True)
             if self.data[1]:
                 try:
                     pcmd = self.strcmd2fct[self.numcmd2strcmd[self.data[0]]]
                 except KeyError:
                     pcmd = None
                 if pcmd is not None:
+                    # print(pcmd)
                     pcmd()
-
-
             if self.socket:
                 self.data = self.socket.recieve()
+            self.mouse.fresh_switch = False
 
 
 
@@ -58,6 +59,7 @@ class MouseController:
     def __init__(self):
         self.speed = 200
         self.pos = win32api.GetCursorPos()
+        self.fresh_switch = False
 
     def move_up(self):
         self.pos = win32api.GetCursorPos()
@@ -100,15 +102,16 @@ class MouseController:
         sleep((1 / (np.sqrt(2)/2)) / self.speed)
 
     def left_click(self):
-        self.pos = win32api.GetCursorPos()
-        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, self.pos[0], self.pos[1], 0, 0)
-        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, self.pos[0], self.pos[1], 0, 0)
+        if self.fresh_switch:
+            self.pos = win32api.GetCursorPos()
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, self.pos[0], self.pos[1], 0, 0)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, self.pos[0], self.pos[1], 0, 0)
 
     def right_click(self):
-        self.pos = win32api.GetCursorPos()
-        win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTDOWN, self.pos[0], self.pos[1], 0, 0)
-        win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTUP, self.pos[0], self.pos[1], 0, 0)
-
+        if self.fresh_switch:
+            self.pos = win32api.GetCursorPos()
+            win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTDOWN, self.pos[0], self.pos[1], 0, 0)
+            win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTUP, self.pos[0], self.pos[1], 0, 0)
 
 if __name__=='__main__':
     hid = HIDCom()
