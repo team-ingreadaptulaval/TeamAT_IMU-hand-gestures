@@ -7,6 +7,9 @@ import traceback
 from threading import Thread, Lock
 from queue import Queue
 import os
+from time import sleep
+
+import win32api
 from pid import PidFile
 
 
@@ -86,6 +89,11 @@ def decodestr(reception):
     reception = reception.decode()
     reception = reception.split(',')
     return (reception[0], [float(num) for num in reception[1::]])
+
+# def on_exit(sig, func=None):
+#     print("exit handler")
+#     os.remove(os.getcwd()+ '/' + 'signdetectsocket.pid')
+# win32api.SetConsoleCtrlHandler(on_exit, True)
 
 if __name__ == "__main__":
     with PidFile('signdetectsocket', os.getcwd()) as p:
