@@ -1,5 +1,8 @@
 archive/
+.vscode/
 algo/archive/
+algo/*.m
+algo/test.*
 ACL_comparaison_xcorr/
 fixed45_data/
 my_data/
