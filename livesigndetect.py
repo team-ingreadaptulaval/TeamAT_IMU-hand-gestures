@@ -40,13 +40,13 @@ class LiveSignatureDetection:
         self.WINDOW_BUF_LEN = self.FREQ
         self.WINDOW_LEN = window_len
         self.TRIGGER_TRESH = [15, 3]
-        self.MIN_AFTER_COUNT = 5
+        self.MIN_AFTER_COUNT = 5 # augmenter
         self.ACCEL_VARIANCE_TRESH = 2
         self.IDLE_PTS_BEFORE_WINDOW = 5
-        self.IDLE_TIME_MAX = 1.5
+        self.IDLE_TIME_MAX = 1.5 # augmenter
         self.MISSED_MAX = 1
         self.SWITCH_RELEASE_TIME_OFFSET = 2
-        self.REQUIRED_EXAMPLES = 5
+        self.REQUIRED_EXAMPLES = 10
         self.HOLD_DOWN_TRESH = 2
         self.N_SENSORS = 6
 
@@ -86,6 +86,7 @@ class LiveSignatureDetection:
         self.switch_switched = False
         self.new_fit_done = False
         self.unavailable_flag = False
+        self.autoclick = False
 
     def fit_from_trainfile(self, filename):
         self.unavailable_flag = True
@@ -131,6 +132,7 @@ class LiveSignatureDetection:
         pred = (len(self.targets_names) + 1, None, None, None)
         mag_accel = linalg.norm(data[0:3])
         mag_gyro = linalg.norm(data[3::])
+
         if not switch_pressed:
             if self.switch_switched:
                 self.adjust_idle_timer()
@@ -169,6 +171,11 @@ class LiveSignatureDetection:
         self.accel_m1 = mag_accel
         self.gyro_m1 = mag_gyro
         command = self.sequence_detection(pred)
+        ################# ------------------#
+        if self.autoclick and  command in [2, 3, 4, 5, 11]:
+            switch_pressed = 1
+            self.last_command = 0
+        #------------------ #################
         self.command_string = f'signdetect,{command},{switch_pressed}'
         return self.command_string
 
@@ -196,6 +203,7 @@ class LiveSignatureDetection:
         return self.last_command
 
     def compute_command(self, last_command):
+        # print(last_command)
         command = last_command
         if time() - self.idle_timer > self.IDLE_TIME_MAX:  # Timeout
             action = self.check_sequence()

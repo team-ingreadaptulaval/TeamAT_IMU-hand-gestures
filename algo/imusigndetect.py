@@ -90,7 +90,7 @@ class ImuSignDetectClassifier:
             accel = utils.lowpass_filter(accel0, tau=0.03, freq=100)
             gyro = utils.lowpass_filter(gyro0, tau=0.015, freq=100)
             signals = [accel, gyro]
-            p = 4
+            p = 3
             n_cut = 4
             feats += [utils.nancorrelation(*signals).reshape(-1)]
             feats += [utils.nancorrelation(acc_cut, gyr_cut).reshape(-1)

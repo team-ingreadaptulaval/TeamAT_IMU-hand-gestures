@@ -1,1 +1,1 @@
-["at_pc_dev", {}]
+["at_pc_dev", {"tap": "lclick", "tap-swipe": "up", "shake": "down", "shake-swipe": "right", "swipe": "left"}]

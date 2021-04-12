@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import QMainWindow, QWidget, QDialog, QApplication, QPushButton, QListWidget, QAction, qApp,\
     QTextEdit, QLineEdit, QLabel, QMessageBox, QFileDialog, QInputDialog, \
     QListWidgetItem, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, \
-    QSizePolicy, QGridLayout, QVBoxLayout, QHBoxLayout, QComboBox, QAbstractItemView
+    QSizePolicy, QGridLayout, QVBoxLayout, QHBoxLayout, QComboBox, QAbstractItemView, QCheckBox
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QFont, QColor
 import os
@@ -103,7 +103,14 @@ class Window(QMainWindow):
         self.layout.add_widget(self.textedit_log, 0, 1, w=2)
         self.layout.add_widget(label_cs, 1, 1)
         self.layout.add_widget(self.lineedit_cs, 1, 2)
-
+        self.autoclick_checkbox = QCheckBox('Auto Click')
+        self.autoclick_checkbox.setFixedHeight(40)
+        self.autoclick_checkbox.setCheckState(Qt.Unchecked)
+        self.layout.add_widget(self.autoclick_checkbox, 2, 1)
+        self.autoclick_checkbox.stateChanged.connect(self.update_autoclick_flag)
+    def update_autoclick_flag(self):
+        self.sd.autoclick = self.autoclick_checkbox.checkState() == Qt.Checked
+        print(self.sd.autoclick)
 
     def menubar_init(self):
         exit_act = QAction('&Exit', self)
@@ -263,6 +270,7 @@ class Window(QMainWindow):
         if okPressed and text != '':
             print(text)  # TODO: msgbox if re_record
             self.sd.new_target_name = text
+            time.sleep(1)
             self.sd.set_mode(1)
 
     def handle_sign_record(self):

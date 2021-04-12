@@ -96,9 +96,9 @@ def decodestr(reception):
 # win32api.SetConsoleCtrlHandler(on_exit, True)
 
 if __name__ == "__main__":
-    with PidFile('signdetectsocket', os.getcwd()) as p:
-        try:
-            mcs = MultiClientServer()
-            mcs.start_server()
-        except KeyboardInterrupt:
-            print('closing local server')
+    # with PidFile('signdetectsocket', os.getcwd()) as p:
+    try:
+        mcs = MultiClientServer()
+        mcs.start_server()
+    except KeyboardInterrupt:
+        print('closing local server')
